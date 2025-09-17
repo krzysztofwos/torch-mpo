@@ -1,0 +1,4 @@
+*.pth
+/.coverage
+/data
+__pycache__
