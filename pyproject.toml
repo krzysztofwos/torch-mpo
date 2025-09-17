@@ -1,0 +1,77 @@
+[project]
+name = "torch-mpo"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "PyTorch implementation of Matrix Product Operators for neural network compression"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Krzysztof Woś" }]
+maintainers = [{ name = "Krzysztof Woś" }]
+keywords = [
+  "deep-learning",
+  "model-compression",
+  "mpo",
+  "neural-networks",
+  "pytorch",
+  "tensor-decomposition",
+  "tensor-train",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "matplotlib>=3.7.0",
+  "numpy>=1.24.0",
+  "pytorch-lightning>=2.0.0",
+  "tensorboard>=2.13.0",
+  "torch>=2.0.0",
+  "torchvision>=0.15.0",
+  "tqdm>=4.65.0",
+  "wandb>=0.15.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/krzysztofwos/torch-mpo"
+Repository = "https://github.com/krzysztofwos/torch-mpo"
+Issues = "https://github.com/krzysztofwos/torch-mpo/issues"
+Documentation = "https://github.com/krzysztofwos/torch-mpo/blob/main/docs/tutorial.md"
+
+[project.optional-dependencies]
+dev = [
+  "black>=23.3.0",
+  "flake8>=6.0.0",
+  "isort>=5.12.0",
+  "mypy>=1.15.0",
+  "pytest-asyncio>=0.26.0",
+  "pytest-cov>=4.1.0",
+  "pytest-mock>=3.14.0",
+  "pytest>=8.3.5",
+]
+
+docs = [
+  "sphinx-autodoc-typehints>=1.23.0",
+  "sphinx-rtd-theme>=1.2.0",
+  "sphinx>=6.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/torch_mpo"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
