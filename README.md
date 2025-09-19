@@ -1,5 +1,12 @@
 # PyTorch Matrix Product Operators
 
+[![Tests]][Python Actions] [![Latest Version PyPI]][PyPI]
+
+[Tests]: https://img.shields.io/github/actions/workflow/status/krzysztofwos/torch-mpo/tests.yml?branch=main&label=Tests
+[Python Actions]: https://github.com/krzysztofwos/torch-mpo/actions/workflows/tests.yml?query=branch%3Amain
+[Latest Version PyPI]: https://img.shields.io/pypi/v/torch-mpo?label=PyPI
+[PyPI]: https://pypi.org/project/torch-mpo/
+
 A modern PyTorch implementation of Matrix Product Operators (MPO) for neural network compression, based on the paper "Compressing deep neural networks by matrix product operators" by Ze-Feng Gao et al.
 
 ## Overview
