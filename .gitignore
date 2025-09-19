@@ -1,4 +1,5 @@
 *.pth
 /.coverage
 /data
+/dist
 __pycache__
