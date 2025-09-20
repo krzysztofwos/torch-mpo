@@ -97,10 +97,18 @@ def print_compression_stats(model):
                 f"(compression: {layer['compression_ratio']:.2f}x)"
             )
 
-    # Compare with standard VGG-16
-    standard_vgg16_params = 138357544  # Standard VGG-16 parameters
+    # Compare with standard VGG-16 for same configuration
+    # Note: Standard ImageNet VGG-16 has 138,357,544 parameters
+    # For CIFAR-10 with 10 classes, we need to calculate the actual baseline
+    # Conv layers: same as ImageNet version
+    # FC layers: 512*7*7*4096 + 4096*4096 + 4096*10 (vs 4096*1000 for ImageNet)
+    conv_params = 14714688  # Fixed for VGG-16 conv layers
+    fc_params = 512 * 7 * 7 * 4096 + 4096 * 4096 + 4096 * 10  # FC layers for 10 classes
+    standard_vgg16_params = conv_params + fc_params
     compression_ratio = standard_vgg16_params / stats["total_params"]
-    print(f"\nOverall compression vs standard VGG-16: {compression_ratio:.2f}x")
+    print(f"\nStandard VGG-16 params (10 classes): {standard_vgg16_params:,}")
+    print(f"Compressed model params: {stats['total_params']:,}")
+    print(f"Overall compression ratio: {compression_ratio:.2f}x")
     print("=" * 60 + "\n")
 
 
