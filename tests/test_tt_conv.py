@@ -188,11 +188,14 @@ class TestTTConv2d:
         rel_error = (y_standard - y_tt).norm() / y_standard.norm()
         assert rel_error < 1.5, f"Relative error {rel_error:.4f} too large"
 
-        # Check that both have similar statistics (relaxed due to approximation limitations)
-        # The mean should be close to zero for both
-        assert torch.abs(y_tt.mean()) < 0.5, f"TTConv2d mean too large: {y_tt.mean()}"
-        # The std should be reasonable (not exploding or vanishing)
-        assert 0.01 < y_tt.std() < 10.0, f"TTConv2d std out of range: {y_tt.std()}"
+        # Check that both have similar statistics
+        # Mean should be very close since bias is copied directly
+        assert torch.allclose(y_standard.mean(), y_tt.mean(), atol=0.1)
+        # Std will have some error due to the approximation, but should be in same ballpark
+        # Our simplified decomposition typically achieves ~60% accuracy for std
+        assert torch.allclose(
+            y_standard.std(), y_tt.std(), rtol=0.65
+        )  # Within 65% relative error
 
     def test_numerical_stability(self):
         """Test that TTConv2d maintains stable activation statistics.

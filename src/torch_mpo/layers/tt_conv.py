@@ -332,8 +332,12 @@ class TTConv2d(nn.Module):
                 dim=0, keepdim=True
             )  # [1, out_modes[1]]
 
-            # Scale to preserve magnitude
-            scale = torch.sqrt(torch.abs(M_t).mean())
+            # Scale to better preserve output magnitude
+            # We need to compensate for the averaging operations
+            scale = torch.norm(M_t) / (
+                torch.norm(core0_values) * torch.norm(core1_values)
+            )
+            scale = torch.sqrt(scale)  # Split between two cores
             self.cores[0].copy_(core0_values * scale)
             self.cores[1].copy_(core1_values.reshape(1, -1) * scale)
 
