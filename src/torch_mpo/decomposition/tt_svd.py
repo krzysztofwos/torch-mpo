@@ -16,7 +16,8 @@ def tt_svd(
         tensor: Input tensor to decompose
         ranks: TT-ranks for decomposition. If int, same rank for all modes.
                If list, must have length ndim+1 with boundary ranks=1
-        epsilon: Threshold for SVD truncation
+        epsilon: Relative threshold for SVD truncation. Singular values below
+               epsilon * max(singular_value) are truncated. Set to 0 to disable
 
     Returns:
         List of TT cores
@@ -44,8 +45,18 @@ def tt_svd(
         # Perform SVD using torch.linalg.svd
         U, S, Vh = torch.linalg.svd(C, full_matrices=False)
 
-        # Truncate to rank
-        rank = min(ranks[i + 1], U.shape[1])
+        # Truncate based on rank and epsilon threshold
+        # First, determine truncation based on epsilon (singular value threshold)
+        if epsilon > 0:
+            # Find where singular values drop below epsilon * max(S)
+            s_max = S[0] if S.numel() > 0 else 1.0
+            keep_indices = S > epsilon * s_max
+            epsilon_rank = keep_indices.sum().item()
+        else:
+            epsilon_rank = S.shape[0]
+
+        # Take minimum of requested rank and epsilon-based rank
+        rank = min(ranks[i + 1], U.shape[1], epsilon_rank)
         U = U[:, :rank]
         S = S[:rank]
         Vh = Vh[:rank, :]
@@ -81,7 +92,8 @@ def matrix_tt_svd(
         inp_modes: Factorization of input dimension
         out_modes: Factorization of output dimension
         ranks: TT-ranks for decomposition (length should be d+1 where d=len(inp_modes))
-        epsilon: Threshold for SVD truncation
+        epsilon: Relative threshold for SVD truncation. Singular values below
+               epsilon * max(singular_value) are truncated. Set to 0 to disable
 
     Returns:
         List of TT cores for the matrix
@@ -129,7 +141,15 @@ def matrix_tt_svd(
         # Thin SVD using torch.linalg.svd
         U, S, Vh = torch.linalg.svd(C_mat, full_matrices=False)
 
-        r_right = min(ranks[i + 1], U.shape[1])
+        # Truncate based on rank and epsilon threshold
+        if epsilon > 0:
+            s_max = S[0] if S.numel() > 0 else 1.0
+            keep_indices = S > epsilon * s_max
+            epsilon_rank = keep_indices.sum().item()
+        else:
+            epsilon_rank = S.shape[0]
+
+        r_right = min(ranks[i + 1], U.shape[1], epsilon_rank)
         U = U[:, :r_right]
         S = S[:r_right]
         Vh = Vh[:r_right, :]
