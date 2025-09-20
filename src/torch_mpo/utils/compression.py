@@ -141,7 +141,15 @@ def compress_model(
             padding: int | tuple[int, int]
             if isinstance(old_layer.padding, str):
                 if old_layer.padding == "same":
-                    # For stride=1, SAME padding is (d*(k-1))//2 per dim
+                    # Only safe to translate to numeric padding for stride=1
+                    s = stride if isinstance(stride, tuple) else (stride, stride)
+                    if s != (1, 1):
+                        if verbose:
+                            print(
+                                f"Skipping {layer_name}: padding='same' with stride={s} "
+                                "requires asymmetric runtime padding; not supported."
+                            )
+                        continue
                     k = (
                         kernel_size
                         if isinstance(kernel_size, tuple)
