@@ -413,6 +413,37 @@ analyze_tt_compression(4096, 1000, rank=16)
 
 **Mitigation**: Begin with higher rank values and systematically reduce while monitoring performance metrics
 
+## Current Limitations
+
+### TTConv2d Layer Limitations
+
+The current implementation of TTConv2d has several limitations to be aware of:
+
+1. **Grouped/Depthwise Convolutions**: Not supported. Layers with `groups > 1` will raise a `ValueError` or be skipped during automatic compression.
+
+2. **Spatial Decomposition**: The `decompose_spatial=True` option is not yet implemented. The current implementation uses a spatial convolution followed by TT channel mixing.
+
+3. **Padding='same'**: Only supported when it equals symmetric padding for `stride=1`. Other configurations are automatically skipped during compression.
+
+4. **Approximation Quality**: The `from_conv_weight()` method for initializing from pretrained weights uses `matrix_tt_svd` which adds an additional layer of TT decomposition on top of SVD. This limits approximation quality even at high ranks. Future versions may improve this.
+
+### Compression Trade-offs
+
+When using TT decomposition, keep in mind:
+
+- **Rank Selection**: The spatial projection rank (`tt_ranks[1]` in TTConv2d) is often the primary bottleneck for approximation quality
+- **Auto-factorization**: The automatic factorization of dimensions may not always be optimal for your specific use case
+- **Fine-tuning**: Pretrained weight initialization typically requires fine-tuning to recover accuracy
+
+### Roadmap
+
+Future releases are planned to address:
+
+- Support for grouped and depthwise convolutions
+- Full spatial decomposition for convolutional layers
+- Enhanced padding support for all stride configurations
+- Improved approximation quality for pretrained weight initialization
+
 ## Conclusion
 
 Matrix Product Operators and Tensor-Train decomposition provide an effective framework for neural network compression. Through exploitation of low-rank tensor structure, substantial parameter reduction can be achieved while preserving model performance. Successful application requires understanding of the inherent trade-offs and systematic optimization of decomposition parameters for specific applications.
