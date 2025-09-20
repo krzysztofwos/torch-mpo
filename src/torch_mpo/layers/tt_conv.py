@@ -25,12 +25,21 @@ class TTConv2d(nn.Module):
     full TT decomposition of the convolutional kernel.
 
     Current Limitations:
-    - decompose_spatial=True is not implemented (would require careful core design)
-    - Groups > 1 not supported
+    - **Grouped/Depthwise convolutions**: Not supported (groups > 1 will raise ValueError)
+    - **Spatial decomposition**: The decompose_spatial=True option is not implemented
+    - **Padding='same'**: Only supported when it equals symmetric padding for stride=1
 
     Initialization from Pretrained Weights:
     The from_conv_weight() method allows initialization from pretrained conv weights
     by decomposing the kernel via SVD into spatial projection and TT channel mixing.
+    Note: This requires decompose_spatial=False (the default).
+
+    Compression vs. Accuracy Trade-off:
+    The tt_ranks parameter controls the compression-accuracy trade-off:
+    - Lower ranks (4-8): High compression but lower accuracy
+    - Medium ranks (16-32): Balanced compression and accuracy
+    - Higher ranks (64+): Lower compression but better accuracy
+    For pretrained weight initialization, higher ranks preserve more information.
 
     Note on Initialization:
         TTConv2d requires careful initialization to maintain stable gradients.

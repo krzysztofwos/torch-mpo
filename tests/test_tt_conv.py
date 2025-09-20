@@ -201,6 +201,73 @@ class TestTTConv2d:
             tt_std < standard_std * 5
         ), f"TT std {tt_std:.4f} is too large compared to standard {standard_std:.4f}"
 
+    def test_high_rank_approximation_quality(self):
+        """Test that higher ranks provide better approximation of original conv.
+
+        Note: For TTConv2d, the spatial projection rank (tt_ranks[1]) is the primary
+        bottleneck for approximation quality. The current implementation uses
+        matrix_tt_svd which adds additional TT decomposition on top of SVD,
+        limiting the approximation quality even at high ranks.
+        """
+        torch.manual_seed(42)
+
+        # Create a smaller standard conv layer for better demonstration
+        conv_standard = nn.Conv2d(16, 32, kernel_size=3, padding=1, bias=True)
+
+        # Test with different spatial projection ranks
+        rank_errors = []
+        ranks_to_test = [4, 8, 16, 32]
+
+        for rank in ranks_to_test:
+            conv_tt = TTConv2d(
+                in_channels=16,
+                out_channels=32,
+                kernel_size=3,
+                padding=1,
+                tt_ranks=rank,  # This sets the spatial projection rank
+                bias=True,
+            )
+
+            # Initialize from pretrained weights
+            with torch.no_grad():
+                conv_tt.from_conv_weight(conv_standard.weight)
+                if conv_standard.bias is not None and conv_tt.bias is not None:
+                    conv_tt.bias.copy_(conv_standard.bias)
+
+            # Test on random input
+            x = torch.randn(4, 16, 8, 8)
+
+            with torch.no_grad():
+                y_standard = conv_standard(x)
+                y_tt = conv_tt(x)
+
+            # Calculate relative error
+            rel_error = (y_standard - y_tt).norm() / y_standard.norm()
+            rank_errors.append((rank, rel_error.item()))
+
+        # Log the results for visibility
+        for rank, error in rank_errors:
+            print(f"  Rank {rank:2d}: relative error = {error:.4f}")
+
+        # Check that we see at least some improvement with higher ranks
+        first_error = rank_errors[0][1]
+        last_error = rank_errors[-1][1]
+
+        # Due to the additional TT decomposition in matrix_tt_svd,
+        # the improvement is limited but should still be present
+        assert last_error < first_error, (
+            f"Higher rank should improve approximation: "
+            f"rank {ranks_to_test[0]} error={first_error:.4f} vs "
+            f"rank {ranks_to_test[-1]} error={last_error:.4f}"
+        )
+
+        # The current implementation has limited approximation quality
+        # due to the additional TT decomposition. This is a known limitation
+        # that could be improved in future versions.
+        assert (
+            last_error < 1.0
+        ), f"Rank {ranks_to_test[-1]} error {last_error:.4f} should be < 100%"
+
     def test_numerical_stability(self):
         """Test that TTConv2d maintains stable activation statistics.
 

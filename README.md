@@ -175,6 +175,22 @@ See the comprehensive tutorial in `docs/mpo_tutorial.md` covering:
 - Best practices and tips
 - Advanced topics
 
+## Limitations
+
+### Current Limitations
+
+- **Grouped/Depthwise Convolutions**: Not supported. Layers with `groups > 1` are automatically skipped during compression.
+- **Spatial Decomposition**: The `decompose_spatial=True` option for TTConv2d is not yet implemented.
+- **Padding='same'**: Only supported when it equals symmetric padding for `stride=1`. Other cases are skipped.
+
+### Roadmap
+
+Future releases will address:
+
+- Support for grouped and depthwise convolutions
+- Full spatial decomposition for convolutional layers
+- Enhanced padding support for all stride configurations
+
 ## Key Concepts
 
 ### TT-Ranks
