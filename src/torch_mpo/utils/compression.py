@@ -1,5 +1,7 @@
 """Model compression utilities for converting standard layers to TT format."""
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 
@@ -124,10 +126,19 @@ def compress_model(
 
             # Create TT layer
             # Preserve tuple parameters (don't collapse to single int)
-            kernel_size = old_layer.kernel_size  # int or (int,int)
-            stride = old_layer.stride  # int or (int,int)
+            # Cast to proper types for mypy
+            kernel_size: int | tuple[int, int] = cast(
+                int | tuple[int, int], old_layer.kernel_size
+            )
+            stride: int | tuple[int, int] = cast(
+                int | tuple[int, int], old_layer.stride
+            )
+            dilation: int | tuple[int, int] = cast(
+                int | tuple[int, int], old_layer.dilation
+            )
 
             # Handle padding - can be tuple, int, or string
+            padding: int | tuple[int, int]
             if isinstance(old_layer.padding, str):
                 if old_layer.padding == "same":
                     # For stride=1, SAME padding is (d*(k-1))//2 per dim
@@ -137,9 +148,9 @@ def compress_model(
                         else (kernel_size, kernel_size)
                     )
                     d = (
-                        old_layer.dilation
-                        if isinstance(old_layer.dilation, tuple)
-                        else (old_layer.dilation, old_layer.dilation)
+                        dilation
+                        if isinstance(dilation, tuple)
+                        else (dilation, dilation)
                     )
                     padding = ((d[0] * (k[0] - 1)) // 2, (d[1] * (k[1] - 1)) // 2)
                 else:
@@ -149,9 +160,7 @@ def compress_model(
                         )
                     continue
             else:
-                padding = old_layer.padding  # int or (int,int)
-
-            dilation = old_layer.dilation  # int or (int,int)
+                padding = cast(int | tuple[int, int], old_layer.padding)
 
             tt_layer = TTConv2d(
                 in_channels=old_layer.in_channels,

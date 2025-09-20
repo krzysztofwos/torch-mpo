@@ -1,6 +1,6 @@
 """ResNet models with MPO-compressed layers."""
 
-from typing import Any, Type
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -22,7 +22,7 @@ class BasicBlock(nn.Module):
         groups: int = 1,
         base_width: int = 64,
         dilation: int = 1,
-        norm_layer: Type[nn.Module] | None = None,
+        norm_layer: type[nn.Module] | None = None,
         use_mpo: bool = True,
         tt_ranks: int | list[int] = 8,
     ):
@@ -107,7 +107,7 @@ class Bottleneck(nn.Module):
         groups: int = 1,
         base_width: int = 64,
         dilation: int = 1,
-        norm_layer: Type[nn.Module] | None = None,
+        norm_layer: type[nn.Module] | None = None,
         use_mpo: bool = True,
         tt_ranks: int | list[int] = 8,
     ):
@@ -203,14 +203,14 @@ class ResNet_MPO(nn.Module):
 
     def __init__(
         self,
-        block: Type[BasicBlock | Bottleneck],
+        block: type[BasicBlock | Bottleneck],
         layers: list[int],
         num_classes: int = 1000,
         zero_init_residual: bool = False,
         groups: int = 1,
         width_per_group: int = 64,
         replace_stride_with_dilation: list[bool] | None = None,
-        norm_layer: Type[nn.Module] | None = None,
+        norm_layer: type[nn.Module] | None = None,
         use_mpo_conv: bool = True,
         use_mpo_fc: bool = True,
         tt_ranks_conv: int | list[int] = 8,
@@ -287,7 +287,7 @@ class ResNet_MPO(nn.Module):
 
     def _make_layer(
         self,
-        block: Type[BasicBlock | Bottleneck],
+        block: type[BasicBlock | Bottleneck],
         planes: int,
         blocks: int,
         stride: int = 1,
@@ -416,7 +416,7 @@ class ResNet_MPO(nn.Module):
 
 def _resnet(
     arch: str,
-    block: Type[BasicBlock | Bottleneck],
+    block: type[BasicBlock | Bottleneck],
     layers: list[int],
     pretrained: bool,
     progress: bool,
