@@ -43,6 +43,34 @@ def test_conv_same_padding_is_handled_or_skipped(capsys):
         assert "padding" in out.lower() or "skip" in out.lower()
 
 
+def test_conv_same_padding_with_stride_gt_1_is_skipped(capsys):
+    """Test that 'same' padding with stride>1 is properly skipped."""
+    # Create model with 'same' padding and stride=2
+    m = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, stride=2, padding="same"))
+    mc = compress_model(
+        m, layers_to_compress=["0"], tt_ranks=4, verbose=True, compress_linear=False
+    )
+
+    # Should remain Conv2d (not compressed) due to stride>1 with 'same' padding
+    assert isinstance(mc[0], nn.Conv2d)
+    assert not isinstance(mc[0], TTConv2d)
+
+    # Check that appropriate skip message was printed
+    out = capsys.readouterr().out
+    assert "padding='same' with stride=" in out or "asymmetric" in out.lower()
+
+    # Also test with tuple strides
+    m2 = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, stride=(2, 3), padding="same"))
+    mc2 = compress_model(
+        m2, layers_to_compress=["0"], tt_ranks=4, verbose=True, compress_linear=False
+    )
+
+    assert isinstance(mc2[0], nn.Conv2d)
+    assert not isinstance(mc2[0], TTConv2d)
+    out2 = capsys.readouterr().out
+    assert "padding='same' with stride=" in out2 or "asymmetric" in out2.lower()
+
+
 def test_grouped_conv_is_skipped(capsys):
     """Test that grouped convolutions are properly skipped."""
     m = nn.Sequential(nn.Conv2d(16, 32, kernel_size=3, groups=4))

@@ -73,6 +73,53 @@ class TestTTLinear:
         # Expecting error < 1 for basic correctness
         assert rel_err < 1.0, f"Reconstruction too poor: rel_err={rel_err.item():.3e}"
 
+    def test_boundary_rank_validation(self):
+        """Test that boundary ranks must be 1."""
+        # Valid: boundary ranks are 1
+        layer = TTLinear(
+            in_features=64,
+            out_features=32,
+            inp_modes=[8, 8],
+            out_modes=[8, 4],
+            tt_ranks=[1, 4, 1],
+            bias=False,
+        )
+        assert layer.tt_ranks[0] == 1
+        assert layer.tt_ranks[-1] == 1
+
+        # Invalid: first boundary rank != 1
+        with pytest.raises(AssertionError, match="Boundary TT ranks must be 1"):
+            TTLinear(
+                in_features=64,
+                out_features=32,
+                inp_modes=[8, 8],
+                out_modes=[8, 4],
+                tt_ranks=[2, 4, 1],
+                bias=False,
+            )
+
+        # Invalid: last boundary rank != 1
+        with pytest.raises(AssertionError, match="Boundary TT ranks must be 1"):
+            TTLinear(
+                in_features=64,
+                out_features=32,
+                inp_modes=[8, 8],
+                out_modes=[8, 4],
+                tt_ranks=[1, 4, 2],
+                bias=False,
+            )
+
+        # Invalid: wrong length
+        with pytest.raises(AssertionError, match="tt_ranks must have length"):
+            TTLinear(
+                in_features=64,
+                out_features=32,
+                inp_modes=[8, 8],
+                out_modes=[8, 4],
+                tt_ranks=[1, 4],  # Should be length 3, not 2
+                bias=False,
+            )
+
     def test_compression_ratio(self):
         """Test compression ratio calculation."""
         layer = TTLinear(
