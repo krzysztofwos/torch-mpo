@@ -11,12 +11,23 @@ class TTConv2d(nn.Module):
     """
     Tensor-Train decomposed 2D convolutional layer.
 
-    This layer decomposes the 4D convolutional kernel using TT decomposition
-    to reduce the number of parameters. The decomposition is applied to the
-    channel dimensions while keeping the spatial dimensions intact.
+    IMPORTANT: Design and Limitations
+    ----------------------------------
+    This implementation uses a **spatial convolution → TT channel mixing** factorization:
+    1. First, a spatial convolution projects input channels to a lower rank
+    2. Then, TT cores mix the channels to produce output channels
 
-    The implementation follows the "core-by-core" approach which is more
-    memory efficient than reconstructing the full kernel.
+    This is NOT a pure TT decomposition of the full 4D kernel tensor [out, in, kh, kw].
+    Instead, it approximates channel interactions after a reduced spatial projection.
+    This design is more efficient and stable in practice but differs from a theoretical
+    full TT decomposition of the convolutional kernel.
+
+    Current Limitations:
+    - No from_conv_weight() initializer: Weights are randomly initialized, requiring
+      fine-tuning when compressing pretrained models (unlike TTLinear which can
+      initialize from pretrained weights via matrix_tt_svd)
+    - decompose_spatial=True is not implemented (would require careful core design)
+    - Groups > 1 not supported
 
     Note on Initialization:
         TTConv2d requires careful initialization to maintain stable gradients.
