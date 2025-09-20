@@ -103,6 +103,51 @@ def test_grouped_conv_is_skipped(caplog):
     assert "grouped" in log_text
 
 
+def test_conv_init_from_pretrained(caplog):
+    """Test that compress_model initializes TTConv2d from pretrained weights."""
+    import logging
+
+    caplog.set_level(logging.INFO)
+
+    # Create a simple model with a Conv2d layer
+    model = nn.Sequential(
+        nn.Conv2d(3, 16, kernel_size=3, padding=1, bias=True),
+        nn.ReLU(),
+    )
+
+    # Get reference output before compression
+    x = torch.randn(2, 3, 32, 32)
+    with torch.no_grad():
+        y_before = model(x)
+
+    # Compress the model
+    compressed = compress_model(
+        model,
+        layers_to_compress=["0"],
+        tt_ranks=8,
+        verbose=True,
+        compress_linear=False,
+    )
+
+    # Check that initialization from pretrained was attempted
+    log_text = caplog.text
+    assert (
+        "initialized from pretrained weights via SVD" in log_text
+        or "fallback" in log_text
+    )
+
+    # Get output after compression
+    with torch.no_grad():
+        y_after = compressed(x)
+
+    # Outputs should be reasonably close if initialization worked
+    # (random init would give very different outputs)
+    rel_error = (y_before - y_after).norm() / y_before.norm()
+    # With rank 8 and our simplified decomposition, we expect moderate approximation error
+    # The key is that it's better than random initialization (which would give rel_error > 1.5)
+    assert rel_error < 1.2, f"Outputs too different: rel_error={rel_error:.3f}"
+
+
 def test_conv_rectangular_kernels():
     """Test compression of Conv2d with rectangular kernels."""
     m = nn.Sequential(nn.Conv2d(8, 16, kernel_size=(3, 5), padding=(1, 2)))

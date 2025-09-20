@@ -189,17 +189,21 @@ def compress_model(
                 dtype=old_layer.weight.dtype,
             )
 
-            # Note: Conv2d weight initialization from pretrained is more complex
-            # For now, we use random initialization which may need fine-tuning
-            if verbose:
-                logger.warning(
-                    f"{layer_name} initialized randomly (Conv2d compression requires fine-tuning)"
-                )
-
-            # Copy bias if exists
-            if old_layer.bias is not None:
+            # Initialize from pretrained conv weights using SVD decomposition
+            try:
                 with torch.no_grad():
-                    tt_layer.bias.data = old_layer.bias.data.clone()
+                    tt_layer.from_conv_weight(old_layer.weight.detach())
+                    if old_layer.bias is not None and tt_layer.bias is not None:
+                        tt_layer.bias.copy_(old_layer.bias)
+                if verbose:
+                    logger.info(
+                        f"{layer_name} initialized from pretrained weights via SVD"
+                    )
+            except Exception as e:
+                if verbose:
+                    logger.warning(
+                        f"{layer_name} fallback to random init: {e}. Fine-tuning recommended."
+                    )
 
             # Update statistics
             k_size = old_layer.kernel_size
