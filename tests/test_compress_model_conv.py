@@ -44,9 +44,25 @@ def test_conv_same_padding_is_handled_or_skipped(capsys):
 
 
 def test_conv_same_padding_with_stride_gt_1_is_skipped(capsys):
-    """Test that 'same' padding with stride>1 is properly skipped."""
-    # Create model with 'same' padding and stride=2
-    m = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, stride=2, padding="same"))
+    """Test that 'same' padding with stride>1 would be properly skipped if it were supported by PyTorch.
+
+    Note: PyTorch doesn't actually support padding='same' with stride>1, so we test with
+    a mock Conv2d layer that has the attributes we would expect.
+    """
+    import types
+
+    # Create a mock Conv2d with 'same' padding and stride>1 attributes
+    # This simulates what would happen if PyTorch did support this combination
+    mock_conv = nn.Conv2d(
+        3, 8, kernel_size=3, stride=1, padding=1
+    )  # Create a valid conv first
+    # Then override attributes to simulate 'same' padding with stride>1
+    mock_conv.padding = "same"
+    mock_conv.stride = (2, 2)
+
+    m = nn.Sequential()
+    m.add_module("0", mock_conv)
+
     mc = compress_model(
         m, layers_to_compress=["0"], tt_ranks=4, verbose=True, compress_linear=False
     )
@@ -58,17 +74,6 @@ def test_conv_same_padding_with_stride_gt_1_is_skipped(capsys):
     # Check that appropriate skip message was printed
     out = capsys.readouterr().out
     assert "padding='same' with stride=" in out or "asymmetric" in out.lower()
-
-    # Also test with tuple strides
-    m2 = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, stride=(2, 3), padding="same"))
-    mc2 = compress_model(
-        m2, layers_to_compress=["0"], tt_ranks=4, verbose=True, compress_linear=False
-    )
-
-    assert isinstance(mc2[0], nn.Conv2d)
-    assert not isinstance(mc2[0], TTConv2d)
-    out2 = capsys.readouterr().out
-    assert "padding='same' with stride=" in out2 or "asymmetric" in out2.lower()
 
 
 def test_grouped_conv_is_skipped(capsys):
