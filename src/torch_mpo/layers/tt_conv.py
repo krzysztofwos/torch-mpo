@@ -23,11 +23,12 @@ class TTConv2d(nn.Module):
     full TT decomposition of the convolutional kernel.
 
     Current Limitations:
-    - No from_conv_weight() initializer: Weights are randomly initialized, requiring
-      fine-tuning when compressing pretrained models (unlike TTLinear which can
-      initialize from pretrained weights via matrix_tt_svd)
     - decompose_spatial=True is not implemented (would require careful core design)
     - Groups > 1 not supported
+
+    Initialization from Pretrained Weights:
+    The from_conv_weight() method allows initialization from pretrained conv weights
+    by decomposing the kernel via SVD into spatial projection and TT channel mixing.
 
     Note on Initialization:
         TTConv2d requires careful initialization to maintain stable gradients.
@@ -247,6 +248,106 @@ class TTConv2d(nn.Module):
         # Initialize bias
         if self.bias is not None:
             nn.init.zeros_(self.bias)
+
+    @torch.no_grad()
+    def from_conv_weight(self, weight: torch.Tensor, rank: int | None = None) -> None:
+        """
+        Initialize TTConv2d from a pretrained conv weight tensor.
+
+        This method decomposes the full 4D convolution kernel into:
+        1. A spatial projection conv (rank-r output channels)
+        2. TT cores for channel mixing (r -> out_channels)
+
+        Args:
+            weight: Pretrained weight tensor of shape [out_channels, in_channels, kh, kw]
+            rank: Rank for the spatial projection. If None, uses self.tt_ranks[1]
+
+        Note:
+            This provides an approximation of the original convolution. The quality
+            depends on the rank parameter - higher ranks give better approximation
+            but less compression.
+        """
+        if self.decompose_spatial:
+            raise NotImplementedError(
+                "from_conv_weight not supported with spatial decomposition"
+            )
+
+        # Get dimensions
+        C_out, C_in, k_h, k_w = weight.shape
+        assert (
+            C_out == self.out_channels
+        ), f"Weight has {C_out} output channels, expected {self.out_channels}"
+        assert (
+            C_in == self.in_channels
+        ), f"Weight has {C_in} input channels, expected {self.in_channels}"
+        assert (
+            k_h,
+            k_w,
+        ) == self.kernel_size, f"Weight kernel size {(k_h, k_w)} != {self.kernel_size}"
+
+        # Use provided rank or default to tt_ranks[1]
+        r = rank if rank is not None else self.tt_ranks[1]
+
+        # Flatten weight to matrix form [C_out, C_in * k_h * k_w]
+        W = weight.reshape(C_out, C_in * k_h * k_w)
+
+        # Thin SVD decomposition
+        U, S, Vh = torch.linalg.svd(W, full_matrices=False)
+        U, S, Vh = U[:, :r], S[:r], Vh[:r, :]  # truncate to rank r
+
+        # Set spatial projection weights: Vh reshaped to [r, C_in, k_h, k_w]
+        self.spatial_conv.weight.copy_(Vh.reshape(r, C_in, k_h, k_w))
+
+        # Channel mixer target matrix: U * S has shape [C_out, r]
+        M = (U * S).to(self.cores[0].dtype)
+
+        # Decompose M using TT-SVD for the channel mixing
+        # Since inp_modes are dummy (all 1s), we essentially decompose just output modes
+        from torch_mpo.decomposition import matrix_tt_svd
+
+        # Create a matrix that maps from r inputs to C_out outputs
+        # We treat this as having dummy input factorization [1, 1, ..., 1]
+        # and actual output factorization self.out_modes
+        dummy_inp_modes = [1] * self.d
+
+        # The first TT core should map from r inputs to the first output mode
+        # We need to adjust tt_ranks[1] to be r for this decomposition
+        adjusted_ranks = self.tt_ranks.copy()
+        adjusted_ranks[1] = r
+
+        # Decompose M (which is C_out x r) into TT cores
+        tt_cores = matrix_tt_svd(
+            M.t(),  # transpose to get [r, C_out] for standard TT decomposition
+            inp_modes=dummy_inp_modes,
+            out_modes=self.out_modes,
+            ranks=adjusted_ranks,
+            epsilon=1e-10,
+        )
+
+        # Copy TT cores, adjusting shapes as needed
+        for i, new_core in enumerate(tt_cores):
+            if i == 0:
+                # First core needs shape [r, out_modes[0] * tt_ranks[2]]
+                # new_core has shape [tt_ranks[0], out_modes[0], tt_ranks[1], inp_modes[0]]
+                # which is [1, out_modes[0], tt_ranks[2], 1] after decomposition
+                new_core = new_core.squeeze(0).squeeze(
+                    -1
+                )  # remove rank_0=1 and inp_mode=1
+                new_core = new_core.t()  # transpose to [tt_ranks[2], out_modes[0]]
+                if self.d > 1:
+                    new_core = new_core.reshape(r, self.out_modes[0] * self.tt_ranks[2])
+                else:
+                    new_core = new_core.reshape(r, self.out_modes[0])
+                self.cores[0].copy_(new_core)
+            else:
+                # Other cores: [tt_ranks[i+1], out_modes[i] * tt_ranks[i+2]]
+                # new_core shape: [tt_ranks[i], out_modes[i], tt_ranks[i+1], 1]
+                new_core = new_core.squeeze(-1)  # remove inp_mode=1
+                new_core = new_core.permute(
+                    2, 0, 1
+                )  # [tt_ranks[i+1], tt_ranks[i], out_modes[i]]
+                new_core = new_core.reshape(self.tt_ranks[i + 1], -1)
+                self.cores[i].copy_(new_core)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
