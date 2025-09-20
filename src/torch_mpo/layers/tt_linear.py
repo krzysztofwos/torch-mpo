@@ -38,6 +38,7 @@ class TTLinear(nn.Module):
             inp_modes: Factorization of input dimension. If None, auto-factorize.
             out_modes: Factorization of output dimension. If None, auto-factorize.
             tt_ranks: TT-ranks for decomposition. If int, same rank for all modes.
+                      If list, must have length d+1 with boundary ranks (first and last) equal to 1.
             bias: Whether to include bias term
             init_method: Initialization method ("xavier_normal", "xavier_uniform", "normal", "from_matrix")
             device: Device for parameters
@@ -84,6 +85,13 @@ class TTLinear(nn.Module):
         if isinstance(tt_ranks, int):
             self.tt_ranks = [1] + [tt_ranks] * (self.d - 1) + [1]
         else:
+            # Validate list-based tt_ranks
+            assert (
+                len(tt_ranks) == self.d + 1
+            ), f"tt_ranks must have length d+1={self.d+1}, got {len(tt_ranks)}"
+            assert (
+                tt_ranks[0] == 1 and tt_ranks[-1] == 1
+            ), "Boundary TT ranks must be 1 (r0=rd=1)."
             self.tt_ranks = tt_ranks
 
         # Create TT cores as parameters
