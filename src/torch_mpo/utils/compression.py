@@ -23,19 +23,19 @@ def compress_model(
     """
     Compress a PyTorch model by replacing layers with TT-decomposed versions.
 
-    IMPORTANT: Conv2d Compression Limitations
-    -----------------------------------------
-    - Conv2d layers are randomly initialized (no weight reconstruction from pretrained)
-    - Requires fine-tuning after compression for Conv2d layers
-    - Linear layers can be initialized from pretrained weights via matrix_tt_svd
+    Weight Initialization:
+    ----------------------
+    - Linear layers: Initialized from pretrained weights via matrix_tt_svd
+    - Conv2d layers: Initialized from pretrained weights via SVD decomposition (from_conv_weight)
+      Falls back to random initialization if SVD fails. Fine-tuning recommended for best results.
 
     Args:
         model: Model to compress
         layers_to_compress: list of layer names to compress. If None, compress all eligible layers.
         compression_ratio: Target compression ratio (0 < ratio < 1)
         tt_ranks: TT-ranks to use. Can be int (same for all) or dict mapping layer names to ranks.
-        compress_linear: Whether to compress Linear layers (supports weight initialization)
-        compress_conv: Whether to compress Conv2d layers (random init only, requires fine-tuning)
+        compress_linear: Whether to compress Linear layers
+        compress_conv: Whether to compress Conv2d layers
         verbose: Whether to print compression statistics
 
     Returns:
