@@ -25,31 +25,40 @@ def test_conv_tuple_geometry_preserved():
     assert tt.dilation == (1, 2)
 
 
-def test_conv_same_padding_is_handled_or_skipped(capsys):
+def test_conv_same_padding_is_handled_or_skipped(caplog):
     """Test handling of 'same' padding in Conv2d compression."""
+    import logging
+
+    # Set logging level to capture info messages
+    caplog.set_level(logging.INFO)
+
     m = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, padding="same"))
     mc = compress_model(
         m, layers_to_compress=["0"], tt_ranks=4, verbose=True, compress_linear=False
     )
 
     # Check if 'same' padding was translated to numeric
-    out = capsys.readouterr().out
+    log_text = caplog.text.lower()
     if isinstance(mc[0], TTConv2d):
         # If successfully converted, padding should be (1, 1) for kernel_size=3, stride=1
         assert mc[0].padding == (1, 1)
     else:
-        # If not supported, should remain Conv2d and print skip message
+        # If not supported, should remain Conv2d and log skip message
         assert isinstance(mc[0], nn.Conv2d)
-        assert "padding" in out.lower() or "skip" in out.lower()
+        assert "padding" in log_text or "skip" in log_text
 
 
-def test_conv_same_padding_with_stride_gt_1_is_skipped(capsys):
+def test_conv_same_padding_with_stride_gt_1_is_skipped(caplog):
     """Test that 'same' padding with stride>1 would be properly skipped if it were supported by PyTorch.
 
     Note: PyTorch doesn't actually support padding='same' with stride>1, so we test with
     a mock Conv2d layer that has the attributes we would expect.
     """
+    import logging
     import types
+
+    # Set logging level to capture info messages
+    caplog.set_level(logging.INFO)
 
     # Create a mock Conv2d with 'same' padding and stride>1 attributes
     # This simulates what would happen if PyTorch did support this combination
@@ -71,13 +80,18 @@ def test_conv_same_padding_with_stride_gt_1_is_skipped(capsys):
     assert isinstance(mc[0], nn.Conv2d)
     assert not isinstance(mc[0], TTConv2d)
 
-    # Check that appropriate skip message was printed
-    out = capsys.readouterr().out
-    assert "padding='same' with stride=" in out or "asymmetric" in out.lower()
+    # Check that appropriate skip message was logged
+    log_text = caplog.text.lower()
+    assert "padding='same' with stride=" in log_text or "asymmetric" in log_text
 
 
-def test_grouped_conv_is_skipped(capsys):
+def test_grouped_conv_is_skipped(caplog):
     """Test that grouped convolutions are properly skipped."""
+    import logging
+
+    # Set logging level to capture info messages
+    caplog.set_level(logging.INFO)
+
     m = nn.Sequential(nn.Conv2d(16, 32, kernel_size=3, groups=4))
     mc = compress_model(
         m, layers_to_compress=["0"], tt_ranks=4, verbose=True, compress_linear=False
@@ -85,8 +99,8 @@ def test_grouped_conv_is_skipped(capsys):
 
     # Grouped conv should be skipped
     assert isinstance(mc[0], nn.Conv2d)
-    out = capsys.readouterr().out
-    assert "grouped" in out.lower()
+    log_text = caplog.text.lower()
+    assert "grouped" in log_text
 
 
 def test_conv_rectangular_kernels():
