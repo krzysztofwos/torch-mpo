@@ -371,7 +371,7 @@ class TTConv2d(nn.Module):
 
         # Step 2: Reshape for TT processing
         # [batch, rank_1, H', W'] -> [batch * H' * W', rank_1]
-        x = x.permute(0, 2, 3, 1).contiguous().view(-1, self.tt_ranks[1])
+        x = x.permute(0, 2, 3, 1).contiguous().reshape(-1, self.tt_ranks[1])
 
         # Step 3: Apply TT cores sequentially
         # This implements the contraction: x_{r_0 n_1 ... n_d r_d} = sum_r G^{(1)}_{r_0 n_1 r_1} ... G^{(d)}_{r_{d-1} n_d r_d}
@@ -387,10 +387,10 @@ class TTConv2d(nn.Module):
                 if self.d > 1:
                     # Reshape to separate out_mode and next rank
                     # [spatial_points, out_modes[0] * rank_2] -> [spatial_points, out_modes[0], rank_2]
-                    x = x.view(-1, self.out_modes[0], self.tt_ranks[2])
+                    x = x.reshape(-1, self.out_modes[0], self.tt_ranks[2])
                     # Prepare for next core by flattening spatial and output modes
                     # [spatial_points, out_modes[0], rank_2] -> [spatial_points * out_modes[0], rank_2]
-                    x = x.view(-1, self.tt_ranks[2])
+                    x = x.reshape(-1, self.tt_ranks[2])
                 # If d==1, we're done with cores
 
             else:
@@ -403,22 +403,22 @@ class TTConv2d(nn.Module):
                     # Not the last core - prepare for next iteration
                     # [spatial_points * prod(out_modes[:i]), out_modes[i] * rank_{i+2}]
                     # -> [spatial_points * prod(out_modes[:i]), out_modes[i], rank_{i+2}]
-                    x = x.view(-1, self.out_modes[i], self.tt_ranks[i + 2])
+                    x = x.reshape(-1, self.out_modes[i], self.tt_ranks[i + 2])
                     # -> [spatial_points * prod(out_modes[:i+1]), rank_{i+2}]
-                    x = x.view(-1, self.tt_ranks[i + 2])
+                    x = x.reshape(-1, self.tt_ranks[i + 2])
                 else:
                     # Last core - just reshape to get final output channels
                     # [spatial_points * prod(out_modes[:-1]), out_modes[-1]]
-                    x = x.view(-1, self.out_modes[i])
+                    x = x.reshape(-1, self.out_modes[i])
 
         # Step 4: Reshape back to conv output format
         # x: [batch * h_out * w_out, total_out_channels]
-        x = x.view(batch_size, h_out, w_out, self.out_channels)
+        x = x.reshape(batch_size, h_out, w_out, self.out_channels)
         x = x.permute(0, 3, 1, 2)
 
         # Step 5: Add bias
         if self.bias is not None:
-            x = x + self.bias.view(1, -1, 1, 1)
+            x = x + self.bias.reshape(1, -1, 1, 1)
 
         return x
 
