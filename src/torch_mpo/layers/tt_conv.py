@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from ..decomposition.tt_svd import matrix_tt_svd
+
 
 class TTConv2d(nn.Module):
     """
@@ -250,7 +252,7 @@ class TTConv2d(nn.Module):
             nn.init.zeros_(self.bias)
 
     @torch.no_grad()
-    def from_conv_weight(self, weight: torch.Tensor) -> None:
+    def from_conv_weight(self, weight: torch.Tensor, epsilon: float = 1e-10) -> None:
         """
         Initialize TTConv2d from a pretrained conv weight tensor.
 
@@ -260,6 +262,7 @@ class TTConv2d(nn.Module):
 
         Args:
             weight: Pretrained weight tensor of shape [out_channels, in_channels, kh, kw]
+            epsilon: Relative threshold for SVD truncation in matrix_tt_svd
 
         Note:
             This provides a best-effort approximation of the original convolution.
@@ -303,95 +306,75 @@ class TTConv2d(nn.Module):
 
         # Channel mixer target matrix: U * S has shape [C_out, r]
         M = (U * S).to(self.cores[0].dtype)  # [C_out, r]
-        M_t = M.t()  # [r, C_out]
 
-        # For TTConv2d, we need to directly set cores to approximate the channel mapping
-        # Since the forward pass applies cores sequentially, we need to be careful
+        # Use matrix_tt_svd to properly decompose M into TT cores
+        # M is [C_out, r] where C_out = prod(out_modes) and r is the input dimension
 
-        if self.d == 1:
-            # Simple case: single core maps [r] -> [C_out]
-            self.cores[0].copy_(M_t)
+        # Set up inp_modes to multiply to r
+        # Simple choice: [r] + [1]*(d-1)
+        inp_modes = [r] + [1] * (self.d - 1)
+        out_modes = self.out_modes
 
-        elif self.d == 2:
-            # Two cores case:
-            # First core: [r, out_modes[0] * tt_ranks[2]] = [r, out_modes[0]] since tt_ranks[2]=1
-            # Second core: [tt_ranks[2], out_modes[1]] = [1, out_modes[1]]
-
-            # We need M_t = core0 @ core1 approximately
-            # Where core0 is [r, 1] (after reshaping from [r, out_modes[0]])
-            # and core1 is [1, C_out]
-
-            # Reshape M_t to [r, out_modes[0], out_modes[1]]
-            M_reshaped = M_t.reshape(r, self.out_modes[0], self.out_modes[1])
-
-            # Average over last dimension for first core
-            core0_values = M_reshaped.mean(dim=2)  # [r, out_modes[0]]
-
-            # Average over first dimension for second core
-            core1_values = M_reshaped.mean(dim=0).mean(
-                dim=0, keepdim=True
-            )  # [1, out_modes[1]]
-
-            # Scale to better preserve output magnitude
-            # We need to compensate for the averaging operations
-            scale = torch.norm(M_t) / (
-                torch.norm(core0_values) * torch.norm(core1_values)
-            )
-            scale = torch.sqrt(scale)  # Split between two cores
-            self.cores[0].copy_(core0_values * scale)
-            self.cores[1].copy_(core1_values.reshape(1, -1) * scale)
-
-        else:
-            # For d > 2, use simple heuristic
-            # Set first core to do main transformation, others to identity
-
-            # First core should output something that when passed through other cores gives C_out
-            # For simplicity, pack most information in first core
-            scale = 1.0 / math.pow(self.d, 0.25)  # Scale for stability
-
-            # First core: make it do most of the work
-            if r <= self.out_modes[0]:
-                # If r fits in first output mode, use it directly
-                first_core = torch.zeros(
-                    r, self.out_modes[0], dtype=M.dtype, device=M.device
-                )
-                first_core[:, :r] = torch.eye(r, dtype=M.dtype, device=M.device) * scale
-                self.cores[0].copy_(first_core)
-
-                # Pack channel mixing into subsequent cores
-                for i in range(1, self.d):
-                    if i == self.d - 1:
-                        # Last core should produce final output
-                        self.cores[i].data = torch.ones_like(self.cores[i]) * scale
-                    else:
-                        # Middle cores pass through
-                        core_shape = self.cores[i].shape
-                        self.cores[i].data = (
-                            torch.ones(
-                                core_shape,
-                                dtype=self.cores[i].dtype,
-                                device=self.cores[i].device,
-                            )
-                            * scale
-                        )
+        # Prepare ranks for matrix_tt_svd
+        # The tt_ranks in TTConv are shifted by 1 compared to TTLinear
+        # TTConv: [1, r1, r2, ..., rd, 1] where r1 is the spatial projection rank
+        # For matrix_tt_svd we need ranks for the channel mixing part
+        adjusted_ranks = [1] + list(self.tt_ranks[2:]) + [1]
+        if len(adjusted_ranks) != self.d + 1:
+            # If d=1, we have tt_ranks=[1, r, 1], need ranks=[1, 1]
+            # If d=2, we have tt_ranks=[1, r, r2, 1], need ranks=[1, r2, 1]
+            # Generally: use tt_ranks[2:] for internal ranks
+            if self.d == 1:
+                adjusted_ranks = [1, 1]
             else:
-                # r > out_modes[0], need to compress
-                # Use mean pooling
-                pool_size = r // self.out_modes[0]
-                first_core = M_t[:, : self.out_modes[0]].contiguous()
-                self.cores[0].copy_(first_core)
+                # Ensure we have the right length
+                adjusted_ranks = [1] + list(self.tt_ranks[2 : self.d + 1]) + [1]
 
-                # Other cores as pass-through
-                for i in range(1, self.d):
-                    core_shape = self.cores[i].shape
-                    self.cores[i].data = (
-                        torch.ones(
-                            core_shape,
-                            dtype=self.cores[i].dtype,
-                            device=self.cores[i].device,
-                        )
-                        * scale
-                    )
+        # Call matrix_tt_svd with correct dimensions
+        tt_linear_cores = matrix_tt_svd(
+            M,  # [C_out, r]
+            inp_modes=inp_modes,  # product == r
+            out_modes=out_modes,  # product == C_out
+            ranks=adjusted_ranks,
+            epsilon=epsilon,
+        )
+
+        # Now adapt TTLinear cores to TTConv cores
+        # TTLinear cores are [r_i * out_i, r_{i+1} * in_i]
+        # TTConv cores for i>0 are [r_{i+1}, out_i * r_{i+2}]
+        # TTConv first core is [r, out_0 * r_2]
+
+        for i, tt_linear_core in enumerate(tt_linear_cores):
+            r_i = adjusted_ranks[i]
+            r_ip1 = adjusted_ranks[i + 1]
+            out_i = out_modes[i]
+            in_i = inp_modes[i]  # in_0 == r, others == 1
+
+            # TTLinear core is [r_i * out_i, r_{i+1} * in_i]
+            # Reshape to [r_i, out_i, r_{i+1}, in_i]
+            core4 = tt_linear_core.reshape(r_i, out_i, r_ip1, in_i)
+
+            if i == 0:
+                # First TTConv core expects shape [r, out_0 * r_2]
+                # From TTLinear we have [r_i(=1), out_0, r_ip1, in_i(=r)]
+                # Permute to [in_i, out_i, r_ip1, r_i] then squeeze r_i
+                # Result: [r, out_0, r_ip1] -> flatten to [r, out_0 * r_ip1]
+                if r_i == 1:
+                    core3 = core4.squeeze(0).permute(2, 0, 1)  # [in_i, out_i, r_ip1]
+                else:
+                    core3 = core4.permute(3, 1, 2, 0).squeeze(
+                        -1
+                    )  # [in_i, out_i, r_ip1]
+                conv_core = core3.reshape(in_i, out_i * r_ip1)  # [r, out_0 * r_ip1]
+                self.cores[0].copy_(conv_core)
+            else:
+                # Regular TTConv core expects shape [r_{i+1}, out_i * r_{i+2}]
+                # From TTLinear we have [r_i, out_i, r_ip1, in_i(=1)]
+                # Since in_i == 1, squeeze it: [r_i, out_i, r_ip1]
+                # Flatten to [r_i, out_i * r_ip1]
+                core3 = core4.squeeze(-1)  # [r_i, out_i, r_ip1]
+                conv_core = core3.reshape(r_i, out_i * r_ip1)
+                self.cores[i].copy_(conv_core)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
