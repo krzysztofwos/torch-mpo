@@ -18,13 +18,19 @@ def compress_model(
     """
     Compress a PyTorch model by replacing layers with TT-decomposed versions.
 
+    IMPORTANT: Conv2d Compression Limitations
+    -----------------------------------------
+    - Conv2d layers are randomly initialized (no weight reconstruction from pretrained)
+    - Requires fine-tuning after compression for Conv2d layers
+    - Linear layers can be initialized from pretrained weights via matrix_tt_svd
+
     Args:
         model: Model to compress
         layers_to_compress: list of layer names to compress. If None, compress all eligible layers.
         compression_ratio: Target compression ratio (0 < ratio < 1)
         tt_ranks: TT-ranks to use. Can be int (same for all) or dict mapping layer names to ranks.
-        compress_linear: Whether to compress Linear layers
-        compress_conv: Whether to compress Conv2d layers
+        compress_linear: Whether to compress Linear layers (supports weight initialization)
+        compress_conv: Whether to compress Conv2d layers (random init only, requires fine-tuning)
         verbose: Whether to print compression statistics
 
     Returns:
@@ -117,33 +123,35 @@ def compress_model(
                 )
 
             # Create TT layer
-            # Cast kernel_size, stride, padding, dilation to proper types
-            kernel_size = (
-                old_layer.kernel_size[0]
-                if isinstance(old_layer.kernel_size, tuple)
-                else old_layer.kernel_size
-            )
-            stride = (
-                old_layer.stride[0]
-                if isinstance(old_layer.stride, tuple)
-                else old_layer.stride
-            )
+            # Preserve tuple parameters (don't collapse to single int)
+            kernel_size = old_layer.kernel_size  # int or (int,int)
+            stride = old_layer.stride  # int or (int,int)
+
             # Handle padding - can be tuple, int, or string
             if isinstance(old_layer.padding, str):
-                # TTConv2d doesn't support string padding, skip
-                if verbose:
-                    print(f"Skipping {layer_name}: string padding not supported")
-                continue
-            padding = (
-                old_layer.padding[0]
-                if isinstance(old_layer.padding, tuple)
-                else old_layer.padding
-            )
-            dilation = (
-                old_layer.dilation[0]
-                if isinstance(old_layer.dilation, tuple)
-                else old_layer.dilation
-            )
+                if old_layer.padding == "same":
+                    # For stride=1, SAME padding is (d*(k-1))//2 per dim
+                    k = (
+                        kernel_size
+                        if isinstance(kernel_size, tuple)
+                        else (kernel_size, kernel_size)
+                    )
+                    d = (
+                        old_layer.dilation
+                        if isinstance(old_layer.dilation, tuple)
+                        else (old_layer.dilation, old_layer.dilation)
+                    )
+                    padding = ((d[0] * (k[0] - 1)) // 2, (d[1] * (k[1] - 1)) // 2)
+                else:
+                    if verbose:
+                        print(
+                            f"Skipping {layer_name}: padding='{old_layer.padding}' not supported"
+                        )
+                    continue
+            else:
+                padding = old_layer.padding  # int or (int,int)
+
+            dilation = old_layer.dilation  # int or (int,int)
 
             tt_layer = TTConv2d(
                 in_channels=old_layer.in_channels,
