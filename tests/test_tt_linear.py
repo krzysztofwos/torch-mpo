@@ -45,41 +45,65 @@ class TestTTLinear:
 
     def test_from_matrix(self):
         """Test initialization from full matrix."""
-        # Use smaller dimensions for more stable test
+        # Test 1: Small matrix with higher TT rank for better approximation
         in_features = 16
         out_features = 16
 
-        # Create a low-rank matrix that should be better approximated
-        # Using rank-4 matrix: A = U @ V.T
+        # Create a low-rank matrix
         torch.manual_seed(42)  # For reproducibility
-        U = torch.randn(out_features, 4)
-        V = torch.randn(in_features, 4)
+        rank = 4
+        U = torch.randn(out_features, rank)
+        V = torch.randn(in_features, rank)
         matrix = U @ V.T
 
-        # Create TT layer and initialize from matrix
+        # Create TT layer with sufficient rank
         layer = TTLinear(
             in_features=in_features,
             out_features=out_features,
             inp_modes=[4, 4],
             out_modes=[4, 4],
-            tt_ranks=[1, 4, 1],
+            tt_ranks=[1, 8, 1],  # Higher TT rank for better approximation
         )
         layer.from_matrix(matrix)
 
         # Test reconstruction
         reconstructed = layer.to_matrix()
-
-        # Check that reconstruction has the right shape
         assert reconstructed.shape == matrix.shape
 
-        # For now, just check that the decomposition doesn't completely fail
-        # The current matrix_tt_svd implementation has issues that need
-        # to be fixed for accurate reconstruction
-        assert torch.isfinite(reconstructed).all()
+        # Check reconstruction accuracy with realistic threshold
+        rel_error = torch.norm(reconstructed - matrix) / torch.norm(matrix)
+        assert rel_error < 0.3, f"Relative error {rel_error:.3f} exceeds threshold 0.3"
 
-        # TODO: Fix matrix_tt_svd to achieve better reconstruction accuracy
-        # Expected: rel_error < 0.1 for low-rank matrices
-        # Current: rel_error > 0.9 due to implementation bugs
+        # Test 2: Perfect reconstruction for full-rank TT
+        # Use very small dimensions for exact reconstruction
+        in_features2 = 8
+        out_features2 = 8
+        matrix2 = torch.randn(out_features2, in_features2)
+
+        layer2 = TTLinear(
+            in_features=in_features2,
+            out_features=out_features2,
+            inp_modes=[2, 2, 2],
+            out_modes=[2, 2, 2],
+            tt_ranks=[1, 4, 4, 1],  # High enough ranks for good approximation
+        )
+        layer2.from_matrix(matrix2)
+        reconstructed2 = layer2.to_matrix()
+
+        # For higher ranks, we should get better approximation
+        rel_error2 = torch.norm(reconstructed2 - matrix2) / torch.norm(matrix2)
+        assert (
+            rel_error2 < 0.2
+        ), f"Relative error {rel_error2:.3f} exceeds threshold 0.2"
+
+        # Test forward pass consistency
+        x = torch.randn(32, in_features)
+        y_original = x @ matrix.T
+        y_tt = layer(x)
+        rel_error_forward = torch.norm(y_tt - y_original) / torch.norm(y_original)
+        assert (
+            rel_error_forward < 0.3
+        ), f"Forward pass relative error {rel_error_forward:.3f} exceeds threshold 0.3"
 
     def test_compression_ratio(self):
         """Test compression ratio calculation."""
