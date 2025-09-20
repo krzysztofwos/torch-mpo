@@ -3,5 +3,5 @@
 from torch_mpo.layers import TTConv2d, TTLinear
 from torch_mpo.utils import compress_model
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["TTLinear", "TTConv2d", "compress_model"]
