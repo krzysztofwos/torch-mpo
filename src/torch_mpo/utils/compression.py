@@ -1,11 +1,14 @@
 """Model compression utilities for converting standard layers to TT format."""
 
+import logging
 from typing import cast
 
 import torch
 import torch.nn as nn
 
 from torch_mpo.layers import TTConv2d, TTLinear
+
+logger = logging.getLogger(__name__)
 
 
 def compress_model(
@@ -107,7 +110,9 @@ def compress_model(
             # Skip depthwise/grouped convolutions for now
             if old_layer.groups != 1:
                 if verbose:
-                    print(f"Skipping {layer_name}: grouped convolution not supported")
+                    logger.info(
+                        f"Skipping {layer_name}: grouped convolution not supported"
+                    )
                 continue
 
             # Get TT rank for this layer
@@ -145,7 +150,7 @@ def compress_model(
                     s = stride if isinstance(stride, tuple) else (stride, stride)
                     if s != (1, 1):
                         if verbose:
-                            print(
+                            logger.info(
                                 f"Skipping {layer_name}: padding='same' with stride={s} "
                                 "requires asymmetric runtime padding; not supported."
                             )
@@ -163,7 +168,7 @@ def compress_model(
                     padding = ((d[0] * (k[0] - 1)) // 2, (d[1] * (k[1] - 1)) // 2)
                 else:
                     if verbose:
-                        print(
+                        logger.info(
                             f"Skipping {layer_name}: padding='{old_layer.padding}' not supported"
                         )
                     continue
@@ -187,8 +192,8 @@ def compress_model(
             # Note: Conv2d weight initialization from pretrained is more complex
             # For now, we use random initialization which may need fine-tuning
             if verbose:
-                print(
-                    f"  Note: {layer_name} initialized randomly (Conv2d compression requires fine-tuning)"
+                logger.warning(
+                    f"{layer_name} initialized randomly (Conv2d compression requires fine-tuning)"
                 )
 
             # Copy bias if exists
@@ -210,7 +215,7 @@ def compress_model(
 
         else:
             if verbose:
-                print(
+                logger.warning(
                     f"Skipping {layer_name}: unsupported layer type {type(old_layer)}"
                 )
             continue
@@ -224,14 +229,14 @@ def compress_model(
 
         if verbose:
             compression = old_params / new_params
-            print(
+            logger.info(
                 f"Compressed {layer_name}: {old_params:,} -> {new_params:,} params ({compression:.2f}x)"
             )
 
     if verbose and original_params > 0:
         total_compression = original_params / compressed_params
-        print(
-            f"\nTotal compression: {original_params:,} -> {compressed_params:,} params ({total_compression:.2f}x)"
+        logger.info(
+            f"Total compression: {original_params:,} -> {compressed_params:,} params ({total_compression:.2f}x)"
         )
 
     return compressed_model
