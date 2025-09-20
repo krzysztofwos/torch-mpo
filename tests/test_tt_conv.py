@@ -152,6 +152,70 @@ class TestTTConv2d:
         # Should have reasonable output magnitudes
         assert y_tt.abs().mean() < 10.0  # Not exploding
 
+    def test_numerical_stability(self):
+        """Test that TTConv2d maintains stable activation statistics.
+
+        The d^{-0.25} scaling should prevent activation explosion
+        while maintaining reasonable gradient flow.
+        """
+        torch.manual_seed(42)
+
+        # Create a standard conv for comparison
+        conv_standard = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+
+        # Create TTConv2d with various decomposition depths
+        conv_tt_2 = TTConv2d(
+            in_channels=64,
+            out_channels=128,
+            kernel_size=3,
+            padding=1,
+            out_modes=[16, 8],  # d=2
+            tt_ranks=8,
+        )
+
+        conv_tt_4 = TTConv2d(
+            in_channels=64,
+            out_channels=128,
+            kernel_size=3,
+            padding=1,
+            out_modes=[4, 4, 2, 4],  # d=4
+            tt_ranks=8,
+        )
+
+        # Test input
+        x = torch.randn(8, 64, 32, 32)
+
+        # Get outputs
+        with torch.no_grad():
+            y_standard = conv_standard(x)
+            y_tt_2 = conv_tt_2(x)
+            y_tt_4 = conv_tt_4(x)
+
+        # Calculate statistics
+        std_mean, std_std = y_standard.mean().item(), y_standard.std().item()
+        tt2_mean, tt2_std = y_tt_2.mean().item(), y_tt_2.std().item()
+        tt4_mean, tt4_std = y_tt_4.mean().item(), y_tt_4.std().item()
+
+        # Check that means are close to zero (within reasonable bounds)
+        assert abs(tt2_mean) < 1.0, f"TTConv2d (d=2) mean too large: {tt2_mean}"
+        assert abs(tt4_mean) < 1.0, f"TTConv2d (d=4) mean too large: {tt4_mean}"
+
+        # Check that standard deviations are reasonable (not exploding or vanishing)
+        assert 0.01 < tt2_std < 10.0, f"TTConv2d (d=2) std out of range: {tt2_std}"
+        assert 0.01 < tt4_std < 10.0, f"TTConv2d (d=4) std out of range: {tt4_std}"
+
+        # The d^{-0.25} scaling should keep outputs in similar range regardless of d
+        ratio_2_to_std = tt2_std / std_std
+        ratio_4_to_std = tt4_std / std_std
+
+        # Both should be in reasonable range compared to standard conv
+        assert (
+            0.1 < ratio_2_to_std < 10.0
+        ), f"TTConv2d (d=2) variance ratio: {ratio_2_to_std}"
+        assert (
+            0.1 < ratio_4_to_std < 10.0
+        ), f"TTConv2d (d=4) variance ratio: {ratio_4_to_std}"
+
     def test_custom_modes(self):
         """Test with custom mode factorizations."""
         layer = TTConv2d(
