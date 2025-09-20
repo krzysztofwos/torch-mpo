@@ -41,21 +41,21 @@ def tt_svd(
         n_cols = C.numel() // n_rows
         C = C.reshape(n_rows, n_cols)
 
-        # Perform SVD
-        U, S, V = torch.svd(C)
+        # Perform SVD using torch.linalg.svd
+        U, S, Vh = torch.linalg.svd(C, full_matrices=False)
 
         # Truncate to rank
         rank = min(ranks[i + 1], U.shape[1])
         U = U[:, :rank]
         S = S[:rank]
-        V = V[:, :rank]
+        Vh = Vh[:rank, :]
 
         # Store core
         core = U.reshape(ranks[i], shape[i], rank)
         cores.append(core)
 
         # Update C for next iteration
-        C = torch.diag(S) @ V.t()
+        C = S[:, None] * Vh  # Efficient computation of S @ Vh
 
     # Last core
     cores.append(C.reshape(ranks[-2], shape[-1], ranks[-1]))
@@ -108,85 +108,54 @@ def matrix_tt_svd(
         assert len(ranks) == d + 1, f"ranks must have length {d + 1}"
         assert ranks[0] == 1 and ranks[-1] == 1, "Boundary ranks must be 1"
 
-    # Step 1: Reshape matrix into higher-order tensor with mixed modes
+    # Step 1: Reshape matrix into higher-order tensor
     # Matrix [out_total, in_total] -> [out_0, out_1, ..., in_0, in_1, ...]
     # Then permute to [out_0, in_0, out_1, in_1, ...]
     tensor = matrix.reshape(out_modes + inp_modes)
 
     # Create permutation to interleave output and input modes
-    perm = []
-    for i in range(d):
-        perm.append(i)  # out_mode[i]
-        perm.append(i + d)  # inp_mode[i]
-    tensor = tensor.permute(perm)
+    perm = [i for p in zip(range(d), range(d, 2 * d)) for i in p]
+    C = tensor.permute(perm).contiguous()  # Safe to reshape next
 
     # Step 2: Apply TT-SVD to the permuted tensor
-    # The tensor now has shape [out_0, inp_0, out_1, inp_1, ..., out_{d-1}, inp_{d-1}]
-    # We'll process pairs of modes at a time
     cores = []
-    C = tensor
+    r_left = ranks[0]  # == 1 by contract
 
-    for i in range(d):
-        # Get current mode sizes
-        out_mode = out_modes[i]
-        inp_mode = inp_modes[i]
+    for i in range(d - 1):
+        out_i, in_i = out_modes[i], inp_modes[i]
+        left_size = r_left * out_i * in_i
+        C_mat = C.reshape(left_size, -1)
 
-        # Reshape C for SVD
-        if i == 0:
-            # First core: no left rank
-            # C shape: [out_0, inp_0, rest...]
-            left_size = out_mode * inp_mode
-            right_size = C.numel() // left_size
-            C_mat = C.reshape(left_size, right_size)
-        else:
-            # Other cores: have left rank
-            # C shape: [r_i, out_i, inp_i, rest...]
-            left_size = ranks[i] * out_mode * inp_mode
-            right_size = C.numel() // left_size
-            C_mat = C.reshape(left_size, right_size)
+        # Thin SVD using torch.linalg.svd
+        U, S, Vh = torch.linalg.svd(C_mat, full_matrices=False)
 
-        # Perform SVD
-        U, S, V = torch.svd(C_mat)
+        r_right = min(ranks[i + 1], U.shape[1])
+        U = U[:, :r_right]
+        S = S[:r_right]
+        Vh = Vh[:r_right, :]
 
-        # Determine rank
-        if i == d - 1:
-            # Last core: no truncation needed, right rank must be 1
-            rank = 1
-        else:
-            # Truncate to specified rank
-            rank = min(ranks[i + 1], U.shape[1], V.shape[1])
-
-        U = U[:, :rank]
-        S = S[:rank]
-        V = V[:, :rank]
-
-        # Reshape U to get the core
-        if i == 0:
-            # First core: [out_0 * inp_0, r_1] -> [out_0, inp_0, r_1]
-            U_tensor = U.reshape(out_mode, inp_mode, rank)
-            # Permute and reshape to [r_0 * out_0, r_1 * inp_0] format
-            # Since r_0 = 1: [out_0, r_1 * inp_0]
-            core = U_tensor.permute(0, 2, 1).reshape(out_mode, rank * inp_mode)
-        else:
-            # Middle/last core: [r_i * out_i * inp_i, r_{i+1}]
-            U_tensor = U.reshape(ranks[i], out_mode, inp_mode, rank)
-            # Permute to [r_i, out_i, r_{i+1}, inp_i]
-            U_tensor = U_tensor.permute(0, 1, 3, 2)
-            # Reshape to [r_i * out_i, r_{i+1} * inp_i]
-            core = U_tensor.reshape(ranks[i] * out_mode, rank * inp_mode)
-
+        # Core_i: [r_left, out_i, r_right, in_i] -> flatten to [r_left*out_i, r_right*in_i]
+        core = (
+            U.reshape(r_left, out_i, in_i, r_right)
+            .permute(0, 1, 3, 2)
+            .reshape(r_left * out_i, r_right * in_i)
+        )
         cores.append(core)
 
-        # Update C for next iteration
-        if i < d - 1:
-            C = torch.diag(S) @ V.t()
-            # C now has shape [r_{i+1}, right_size]
-            # We need to reshape it back to tensor form for next iteration
-            # The remaining dimensions are [out_{i+1}, inp_{i+1}, ..., out_{d-1}, inp_{d-1}]
-            remaining_shape = []
-            for j in range(i + 1, d):
-                remaining_shape.extend([out_modes[j], inp_modes[j]])
-            C = C.reshape([rank] + remaining_shape)
+        # Carry remaining C = Sigma * Vh and reshape for next step
+        C = S[:, None] * Vh  # [r_right, ...]
+        # Remaining dims: [out_{i+1}, in_{i+1}, ..., out_{d-1}, in_{d-1}]
+        remaining = []
+        for j in range(i + 1, d):
+            remaining.extend([out_modes[j], inp_modes[j]])
+        C = C.reshape(r_right, *remaining)
+        r_left = r_right
+
+    # Last core is the remainder C: [r_left, out_{d-1}, in_{d-1}] (since r_right == 1)
+    out_last, in_last = out_modes[-1], inp_modes[-1]
+    C = C.reshape(r_left, out_last, in_last)  # ranks[-1] == 1
+    core_last = C.reshape(r_left * out_last, 1 * in_last)
+    cores.append(core_last)
 
     return cores
 
