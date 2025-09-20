@@ -37,7 +37,7 @@ def test_amp_cuda_fp16_smoke():
     x1 = torch.randn(5, 128, device="cuda")
     x2 = torch.randn(2, 3, 16, 16, device="cuda")
 
-    with torch.cuda.amp.autocast():
+    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
         y1 = m1(x1)
         y2 = m2(x2)
         loss = y1.float().pow(2).mean() + y2.float().pow(2).mean()
@@ -57,13 +57,13 @@ def test_amp_gradscaler_integration():
 
     model = TTLinear(64, 32, tt_ranks=4).cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler("cuda")
 
     x = torch.randn(8, 64, device="cuda")
     target = torch.randn(8, 32, device="cuda")
 
     # Training step with GradScaler
-    with torch.cuda.amp.autocast():
+    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
         output = model(x)
         loss = torch.nn.functional.mse_loss(output, target)
 
