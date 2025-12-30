@@ -1,6 +1,6 @@
 [project]
 name = "torch-mpo"
-version = "0.2.0"
+version = "0.2.1"
 requires-python = ">=3.12"
 description = "PyTorch implementation of Matrix Product Operators for neural network compression"
 readme = "README.md"

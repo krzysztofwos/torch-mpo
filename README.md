@@ -278,7 +278,7 @@ If you use this code in your research, please cite both the original paper and t
   author={Woś, Krzysztof},
   year={2024},
   url={https://github.com/krzysztofwos/torch-mpo},
-  version={0.2.0}
+  version={0.2.1}
 }
 ```
 
