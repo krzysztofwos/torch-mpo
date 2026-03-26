@@ -1,6 +1,7 @@
 """Model compression utilities for converting standard layers to TT format."""
 
 import logging
+from collections import defaultdict
 from typing import cast
 
 import torch
@@ -44,6 +45,11 @@ def compress_model(
     # Clone the model to avoid modifying the original
     compressed_model = _clone_model(model)
 
+    module_by_path = dict(_iter_modules_with_paths(compressed_model))
+    alias_paths_by_id: dict[int, list[str]] = defaultdict(list)
+    for path, module in module_by_path.items():
+        alias_paths_by_id[id(module)].append(path)
+
     # Find layers to compress
     if layers_to_compress is None:
         layers_to_compress = []
@@ -55,16 +61,14 @@ def compress_model(
     # Compression statistics
     original_params = 0
     compressed_params = 0
+    processed_modules: set[int] = set()
 
     # Replace layers
     for layer_name in layers_to_compress:
-        # Get the layer
-        module_path = layer_name.split(".")
-        parent = compressed_model
-        for part in module_path[:-1]:
-            parent = getattr(parent, part)
-
-        old_layer = getattr(parent, module_path[-1])
+        old_layer = module_by_path[layer_name]
+        old_layer_id = id(old_layer)
+        if old_layer_id in processed_modules:
+            continue
 
         # Handle Linear layers
         if isinstance(old_layer, nn.Linear):
@@ -94,9 +98,10 @@ def compress_model(
             # Initialize from original weights
             with torch.no_grad():
                 if isinstance(tt_layer, TTLinear):
-                    tt_layer.from_matrix(old_layer.weight.data)
+                    tt_layer.from_matrix(old_layer.weight.detach())
                 if old_layer.bias is not None:
-                    tt_layer.bias.data = old_layer.bias.data.clone()
+                    assert tt_layer.bias is not None
+                    tt_layer.bias.copy_(old_layer.bias.detach())
 
             # Update statistics
             old_params = old_layer.in_features * old_layer.out_features
@@ -224,8 +229,10 @@ def compress_model(
                 )
             continue
 
-        # Replace the layer
-        setattr(parent, module_path[-1], tt_layer)
+        # Replace all aliases that referenced the same original module.
+        for alias_path in alias_paths_by_id.get(old_layer_id, [layer_name]):
+            _set_module_by_path(compressed_model, alias_path, tt_layer)
+        processed_modules.add(old_layer_id)
 
         # Update total statistics
         original_params += old_params
@@ -257,18 +264,36 @@ def _find_layers_by_type(
     model: nn.Module, layer_type: type, prefix: str = ""
 ) -> list[str]:
     """Find all layers of a specific type in a model."""
-    layers = []
+    return [
+        path
+        for path, module in _iter_modules_with_paths(model, prefix)
+        if isinstance(module, layer_type)
+    ]
 
-    for name, module in model.named_children():
+
+def _iter_modules_with_paths(
+    model: nn.Module, prefix: str = ""
+) -> list[tuple[str, nn.Module]]:
+    """Iterate module paths including duplicate aliases."""
+    modules: list[tuple[str, nn.Module]] = []
+    for name, module in model._modules.items():
+        if module is None:
+            continue
+
         full_name = f"{prefix}.{name}" if prefix else name
+        modules.append((full_name, module))
+        modules.extend(_iter_modules_with_paths(module, full_name))
 
-        if isinstance(module, layer_type):
-            layers.append(full_name)
-        else:
-            # Recurse
-            layers.extend(_find_layers_by_type(module, layer_type, full_name))
+    return modules
 
-    return layers
+
+def _set_module_by_path(model: nn.Module, path: str, module: nn.Module) -> None:
+    """Replace a module at a dotted path."""
+    module_path = path.split(".")
+    parent = model
+    for part in module_path[:-1]:
+        parent = getattr(parent, part)
+    setattr(parent, module_path[-1], module)
 
 
 def _find_linear_layers(model: nn.Module, prefix: str = "") -> list[str]:

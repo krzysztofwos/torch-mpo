@@ -19,6 +19,19 @@ class TinyMLP(nn.Module):
         return self.classifier(x)
 
 
+class SharedLinearModel(nn.Module):
+    """Model with aliased linear layers to test weight tying preservation."""
+
+    def __init__(self):
+        super().__init__()
+        shared = nn.Linear(16, 16, bias=False)
+        self.a = shared
+        self.b = shared
+
+    def forward(self, x):
+        return self.a(x), self.b(x)
+
+
 def test_linear_compression_similarity():
     """Test that compressed linear layers produce similar outputs initially."""
     torch.manual_seed(0)
@@ -114,3 +127,23 @@ def test_compressed_model_trainable():
     # Optimizer step
     optimizer.step()
     optimizer.zero_grad()
+
+
+def test_shared_linear_aliases_remain_shared_after_compression():
+    """Test that compress_model preserves aliased layer references."""
+    model = SharedLinearModel()
+    compressed = compress_model(
+        model,
+        layers_to_compress=["a"],
+        compress_conv=False,
+        tt_ranks=2,
+        verbose=False,
+    )
+
+    from torch_mpo.layers import TTLinear
+
+    assert isinstance(compressed.a, TTLinear)
+    assert compressed.a is compressed.b
+
+    y_a, y_b = compressed(torch.randn(3, 16))
+    assert torch.allclose(y_a, y_b)
