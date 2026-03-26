@@ -9,6 +9,24 @@ import torch.nn as nn
 from ..decomposition.tt_svd import matrix_tt_svd
 
 
+def _copy_tensor_with_padding(param: torch.Tensor, tensor: torch.Tensor) -> None:
+    """Copy a smaller tensor into a fixed-size parameter, padding with zeros."""
+    if tensor.ndim != param.ndim:
+        raise ValueError(
+            f"Expected tensor with {param.ndim} dims, got {tensor.ndim}: {tuple(tensor.shape)}"
+        )
+
+    if any(src > dst for src, dst in zip(tensor.shape, param.shape)):
+        raise ValueError(
+            f"Tensor shape {tuple(tensor.shape)} exceeds parameter shape {tuple(param.shape)}"
+        )
+
+    tensor = tensor.to(device=param.device, dtype=param.dtype)
+    param.zero_()
+    slices = tuple(slice(0, size) for size in tensor.shape)
+    param[slices].copy_(tensor)
+
+
 class TTConv2d(nn.Module):
     """
     Tensor-Train decomposed 2D convolutional layer.
@@ -298,30 +316,34 @@ class TTConv2d(nn.Module):
             k_w,
         ) == self.kernel_size, f"Weight kernel size {(k_h, k_w)} != {self.kernel_size}"
 
-        # Use tt_ranks[1] as the rank since that's what the spatial conv expects
-        r = self.tt_ranks[1]
+        # Use tt_ranks[1] as the requested spatial rank, but clamp to what the SVD can provide.
+        requested_r = self.tt_ranks[1]
 
         # Flatten weight to matrix form [C_out, C_in * k_h * k_w]
         W = weight.reshape(C_out, C_in * k_h * k_w)
 
         # Thin SVD decomposition
         U, S, Vh = torch.linalg.svd(W, full_matrices=False)
-        U, S, Vh = U[:, :r], S[:r], Vh[:r, :]  # truncate to rank r
+        effective_r = min(requested_r, S.shape[0])
+        U, S, Vh = U[:, :effective_r], S[:effective_r], Vh[:effective_r, :]
 
-        # Set spatial projection weights: Vh reshaped to [r, C_in, k_h, k_w]
-        # Note: spatial_conv already has r output channels (tt_ranks[1])
-        assert self.spatial_conv.out_channels == r
-        self.spatial_conv.weight.copy_(Vh.reshape(r, C_in, k_h, k_w))
+        # Set spatial projection weights: Vh reshaped to [effective_r, C_in, k_h, k_w]
+        # The convolution keeps the configured output channels, so any truncated
+        # channels are padded with zeros.
+        assert self.spatial_conv.out_channels == requested_r
+        _copy_tensor_with_padding(
+            self.spatial_conv.weight,
+            Vh.reshape(effective_r, C_in, k_h, k_w),
+        )
 
-        # Channel mixer target matrix: U * S has shape [C_out, r]
-        M = (U * S).to(self.cores[0].dtype)  # [C_out, r]
+        # Channel mixer target matrix: U * S has shape [C_out, effective_r]
+        M = U * S  # [C_out, effective_r]
 
         # Use matrix_tt_svd to properly decompose M into TT cores
         # M is [C_out, r] where C_out = prod(out_modes) and r is the input dimension
 
-        # Set up inp_modes to multiply to r
-        # Simple choice: [r] + [1]*(d-1)
-        inp_modes = [r] + [1] * (self.d - 1)
+        # Set up inp_modes to multiply to the effective input rank.
+        inp_modes = [effective_r] + [1] * (self.d - 1)
         out_modes = self.out_modes
 
         # Prepare ranks for matrix_tt_svd
@@ -354,36 +376,36 @@ class TTConv2d(nn.Module):
         # TTConv first core is [r, out_0 * r_2]
 
         for i, tt_linear_core in enumerate(tt_linear_cores):
-            r_i = adjusted_ranks[i]
-            r_ip1 = adjusted_ranks[i + 1]
             out_i = out_modes[i]
-            in_i = inp_modes[i]  # in_0 == r, others == 1
+            in_i = inp_modes[i]
+            actual_r_i = tt_linear_core.shape[0] // out_i
+            actual_r_ip1 = tt_linear_core.shape[1] // in_i
 
             # TTLinear core is [r_i * out_i, r_{i+1} * in_i]
             # Reshape to [r_i, out_i, r_{i+1}, in_i]
-            core4 = tt_linear_core.reshape(r_i, out_i, r_ip1, in_i)
+            core4 = tt_linear_core.reshape(actual_r_i, out_i, actual_r_ip1, in_i)
 
             if i == 0:
                 # First TTConv core expects shape [r, out_0 * r_2]
                 # From TTLinear we have [r_i(=1), out_0, r_ip1, in_i(=r)]
                 # Permute to [in_i, out_i, r_ip1, r_i] then squeeze r_i
                 # Result: [r, out_0, r_ip1] -> flatten to [r, out_0 * r_ip1]
-                if r_i == 1:
+                if actual_r_i == 1:
                     core3 = core4.squeeze(0).permute(2, 0, 1)  # [in_i, out_i, r_ip1]
                 else:
                     core3 = core4.permute(3, 1, 2, 0).squeeze(
                         -1
                     )  # [in_i, out_i, r_ip1]
-                conv_core = core3.reshape(in_i, out_i * r_ip1)  # [r, out_0 * r_ip1]
-                self.cores[0].copy_(conv_core)
+                conv_core = core3.reshape(in_i, out_i * actual_r_ip1)
+                _copy_tensor_with_padding(self.cores[0], conv_core)
             else:
                 # Regular TTConv core expects shape [r_{i+1}, out_i * r_{i+2}]
                 # From TTLinear we have [r_i, out_i, r_ip1, in_i(=1)]
                 # Since in_i == 1, squeeze it: [r_i, out_i, r_ip1]
                 # Flatten to [r_i, out_i * r_ip1]
                 core3 = core4.squeeze(-1)  # [r_i, out_i, r_ip1]
-                conv_core = core3.reshape(r_i, out_i * r_ip1)
-                self.cores[i].copy_(conv_core)
+                conv_core = core3.reshape(actual_r_i, out_i * actual_r_ip1)
+                _copy_tensor_with_padding(self.cores[i], conv_core)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """

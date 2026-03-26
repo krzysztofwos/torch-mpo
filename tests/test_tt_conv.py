@@ -201,6 +201,26 @@ class TestTTConv2d:
             tt_std < standard_std * 5
         ), f"TT std {tt_std:.4f} is too large compared to standard {standard_std:.4f}"
 
+    def test_from_conv_weight_clamps_rank_and_preserves_dtype(self):
+        """Test from_conv_weight when the requested rank exceeds the SVD rank."""
+        conv_tt = TTConv2d(
+            3, 8, kernel_size=1, tt_ranks=8, bias=False, dtype=torch.float32
+        )
+        expected_core_shapes = [tuple(core.shape) for core in conv_tt.cores]
+        expected_spatial_shape = tuple(conv_tt.spatial_conv.weight.shape)
+
+        conv_tt.from_conv_weight(torch.randn(8, 3, 1, 1, dtype=torch.float64))
+
+        assert tuple(conv_tt.spatial_conv.weight.shape) == expected_spatial_shape
+        assert conv_tt.spatial_conv.weight.dtype == torch.float32
+        assert [tuple(core.shape) for core in conv_tt.cores] == expected_core_shapes
+        assert all(core.dtype == torch.float32 for core in conv_tt.cores)
+
+        output = conv_tt(torch.randn(2, 3, 4, 4, dtype=torch.float32))
+        assert output.shape == (2, 8, 4, 4)
+        assert output.dtype == torch.float32
+        assert torch.isfinite(output).all()
+
     def test_high_rank_approximation_quality(self):
         """Test that higher ranks provide better approximation of original conv.
 
