@@ -288,8 +288,27 @@ class TTLinear(nn.Module):
             epsilon,
         )
 
-        for i, core in enumerate(cores):
-            self.cores[i].data = core
+        with torch.no_grad():
+            for param, core in zip(self.cores, cores, strict=True):
+                self._copy_core_with_padding(param, core)
+
+    @staticmethod
+    def _copy_core_with_padding(param: torch.Tensor, core: torch.Tensor) -> None:
+        """Copy a decomposed core into a fixed-size parameter, padding with zeros."""
+        if core.ndim != param.ndim:
+            raise ValueError(
+                f"Expected core with {param.ndim} dims, got {core.ndim}: {tuple(core.shape)}"
+            )
+
+        if any(src > dst for src, dst in zip(core.shape, param.shape)):
+            raise ValueError(
+                f"Core shape {tuple(core.shape)} exceeds parameter shape {tuple(param.shape)}"
+            )
+
+        core = core.to(device=param.device, dtype=param.dtype)
+        param.zero_()
+        slices = tuple(slice(0, size) for size in core.shape)
+        param[slices].copy_(core)
 
     def to_matrix(self) -> torch.Tensor:
         """Reconstruct the full weight matrix from TT cores."""

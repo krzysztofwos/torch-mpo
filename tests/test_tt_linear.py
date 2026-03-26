@@ -73,6 +73,21 @@ class TestTTLinear:
         # Expecting error < 1 for basic correctness
         assert rel_err < 1.0, f"Reconstruction too poor: rel_err={rel_err.item():.3e}"
 
+    def test_from_matrix_preserves_parameter_shapes_and_dtype(self):
+        """Test that from_matrix keeps configured TT ranks and dtype/device."""
+        layer = TTLinear(8, 8, tt_ranks=8, bias=False, dtype=torch.float32)
+        expected_shapes = [tuple(core.shape) for core in layer.cores]
+
+        layer.from_matrix(torch.randn(8, 8, dtype=torch.float64))
+
+        assert [tuple(core.shape) for core in layer.cores] == expected_shapes
+        assert all(core.dtype == torch.float32 for core in layer.cores)
+
+        output = layer(torch.randn(2, 8, dtype=torch.float32))
+        assert output.shape == (2, 8)
+        assert output.dtype == torch.float32
+        assert torch.isfinite(output).all()
+
     def test_boundary_rank_validation(self):
         """Test that boundary ranks must be 1."""
         # Valid: boundary ranks are 1
