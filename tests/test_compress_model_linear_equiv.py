@@ -32,6 +32,21 @@ class SharedLinearModel(nn.Module):
         return self.a(x), self.b(x)
 
 
+class AutoDiscoverModel(nn.Module):
+    """Model that relies on compress_model defaults."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 8, kernel_size=3, padding=1)
+        self.head = nn.Linear(8 * 8 * 8, 6)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = torch.nn.functional.avg_pool2d(x, 2)
+        x = x.reshape(x.size(0), -1)
+        return self.head(x)
+
+
 def test_linear_compression_similarity():
     """Test that compressed linear layers produce similar outputs initially."""
     torch.manual_seed(0)
@@ -147,3 +162,24 @@ def test_shared_linear_aliases_remain_shared_after_compression():
 
     y_a, y_b = compressed(torch.randn(3, 16))
     assert torch.allclose(y_a, y_b)
+
+
+def test_compress_model_auto_discovers_layers_and_heuristic_ranks():
+    """Test compress_model defaults without explicit layers or TT ranks."""
+    model = AutoDiscoverModel()
+    compressed = compress_model(
+        model,
+        layers_to_compress=None,
+        tt_ranks=None,
+        compression_ratio=0.5,
+        verbose=False,
+    )
+
+    from torch_mpo.layers import TTConv2d, TTLinear
+
+    assert isinstance(compressed.conv, TTConv2d)
+    assert isinstance(compressed.head, TTLinear)
+
+    output = compressed(torch.randn(2, 3, 16, 16))
+    assert output.shape == (2, 6)
+    assert torch.isfinite(output).all()
