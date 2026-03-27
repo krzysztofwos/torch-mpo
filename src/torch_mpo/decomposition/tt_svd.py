@@ -35,10 +35,11 @@ def tt_svd(
     # Initialize
     cores = []
     C = tensor
+    r_left = ranks[0]
 
     for i in range(ndim - 1):
         # Reshape for SVD
-        n_rows = ranks[i] * shape[i]
+        n_rows = r_left * shape[i]
         n_cols = C.numel() // n_rows
         C = C.reshape(n_rows, n_cols)
 
@@ -62,14 +63,15 @@ def tt_svd(
         Vh = Vh[:rank, :]
 
         # Store core
-        core = U.reshape(ranks[i], shape[i], rank)
+        core = U.reshape(r_left, shape[i], rank)
         cores.append(core)
 
         # Update C for next iteration
         C = S[:, None] * Vh  # Efficient computation of S @ Vh
+        r_left = rank
 
     # Last core
-    cores.append(C.reshape(ranks[-2], shape[-1], ranks[-1]))
+    cores.append(C.reshape(r_left, shape[-1], ranks[-1]))
 
     return cores
 
