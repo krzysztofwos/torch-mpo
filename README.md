@@ -284,4 +284,9 @@ If you use this code in your research, please cite both the original paper and t
 
 ## License
 
-MIT License
+Licensed under either of
+
+- [MIT License](LICENSE-MIT)
+- [Apache License, Version 2.0](LICENSE-APACHE)
+
+at your option.
