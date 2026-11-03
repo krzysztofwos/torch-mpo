@@ -97,7 +97,7 @@ def compress_model(
                 )
 
             # Create TT layer
-            tt_layer: TTLinear | TTConv2d = TTLinear(
+            tt_linear = TTLinear(
                 in_features=old_layer.in_features,
                 out_features=old_layer.out_features,
                 tt_ranks=rank,
@@ -108,11 +108,11 @@ def compress_model(
 
             # Initialize from original weights
             with torch.no_grad():
-                if isinstance(tt_layer, TTLinear):
-                    tt_layer.from_matrix(old_layer.weight.detach())
+                tt_linear.from_matrix(old_layer.weight.detach())
                 if old_layer.bias is not None:
-                    assert tt_layer.bias is not None
-                    tt_layer.bias.copy_(old_layer.bias.detach())
+                    assert tt_linear.bias is not None
+                    tt_linear.bias.copy_(old_layer.bias.detach())
+            tt_layer: TTLinear | TTConv2d = tt_linear
 
             # Update statistics
             old_params = old_layer.in_features * old_layer.out_features
@@ -305,11 +305,6 @@ def _set_module_by_path(model: nn.Module, path: str, module: nn.Module) -> None:
     for part in module_path[:-1]:
         parent = getattr(parent, part)
     setattr(parent, module_path[-1], module)
-
-
-def _find_linear_layers(model: nn.Module, prefix: str = "") -> list[str]:
-    """Find all Linear layers in a model."""
-    return _find_layers_by_type(model, nn.Linear, prefix)
 
 
 def _compute_tt_rank_linear(
