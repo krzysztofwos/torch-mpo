@@ -32,7 +32,7 @@ cd torch-mpo
 
 # Install with uv (recommended)
 uv sync                  # Install base dependencies
-uv sync --all-extras     # Install with all extras (dev, docs)
+uv sync --all-extras     # Install with all extras
 
 # Or install with pip (development mode)
 pip install -e .
