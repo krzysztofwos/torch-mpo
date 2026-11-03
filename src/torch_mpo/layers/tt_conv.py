@@ -1,6 +1,7 @@
 """TT-decomposed convolutional layer implementation."""
 
 import math
+import warnings
 
 import numpy as np
 import torch
@@ -560,6 +561,14 @@ class TTConv2d(nn.Module):
             remaining //= best_f
 
         factors.append(remaining)
+
+        if max(factors) > 64:
+            warnings.warn(
+                f"{n} does not split evenly into {d} factors (got {factors}); "
+                "the large mode limits compression. "
+                "Pass explicit modes for better results.",
+                stacklevel=3,
+            )
 
         # Verify the factorization is correct
         assert (

@@ -305,3 +305,18 @@ class TestTTLinear:
                 assert torch.isfinite(
                     core
                 ).all(), f"Core {i} contains NaN/Inf with {method}"
+
+    def test_auto_factorization_warns_on_prime(self):
+        """Prime sizes cannot be split and should warn."""
+        with pytest.warns(UserWarning, match="does not split evenly"):
+            layer = TTLinear(in_features=1021, out_features=512, tt_ranks=4)
+        assert layer.inp_modes == [1, 1, 1, 1021]
+
+    def test_auto_factorization_no_warning_when_balanced(self):
+        """Well-factorable sizes should not warn."""
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            TTLinear(in_features=1024, out_features=512, tt_ranks=4)
+            TTLinear(in_features=512, out_features=10, tt_ranks=4)

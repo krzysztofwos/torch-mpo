@@ -1,6 +1,7 @@
 """TT-decomposed fully connected layer implementation."""
 
 import math
+import warnings
 
 import numpy as np
 import torch
@@ -415,6 +416,14 @@ class TTLinear(nn.Module):
                     break
 
         factors.append(remaining)
+
+        if max(factors) > 64:
+            warnings.warn(
+                f"{n} does not split evenly into {d} factors (got {factors}); "
+                "the large mode limits compression. "
+                "Pass explicit modes for better results.",
+                stacklevel=3,
+            )
 
         # Verify
         assert np.prod(factors) == n, f"Factorization failed: {factors} != {n}"
