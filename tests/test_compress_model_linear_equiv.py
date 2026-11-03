@@ -1,5 +1,6 @@
 """Test linear compression equivalence."""
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -183,3 +184,10 @@ def test_compress_model_auto_discovers_layers_and_heuristic_ranks():
     output = compressed(torch.randn(2, 3, 16, 16))
     assert output.shape == (2, 6)
     assert torch.isfinite(output).all()
+
+
+def test_compress_model_rejects_unknown_layer_names():
+    """Misspelled layer names should raise a helpful error."""
+    model = TinyMLP()
+    with pytest.raises(ValueError, match=r"\['classifer\.1'\].*classifier\.1"):
+        compress_model(model, layers_to_compress=["classifer.1"], verbose=False)

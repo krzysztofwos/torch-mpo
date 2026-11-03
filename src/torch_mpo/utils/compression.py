@@ -57,6 +57,17 @@ def compress_model(
             layers_to_compress.extend(_find_layers_by_type(compressed_model, nn.Linear))
         if compress_conv:
             layers_to_compress.extend(_find_layers_by_type(compressed_model, nn.Conv2d))
+    else:
+        unknown = [name for name in layers_to_compress if name not in module_by_path]
+        if unknown:
+            available = [
+                path
+                for path, module in module_by_path.items()
+                if isinstance(module, (nn.Linear, nn.Conv2d))
+            ]
+            raise ValueError(
+                f"Unknown layer name(s) {unknown}. Linear/Conv2d layers: {available}"
+            )
 
     # Compression statistics
     original_params = 0
