@@ -189,5 +189,14 @@ def test_compress_model_auto_discovers_layers_and_heuristic_ranks():
 def test_compress_model_rejects_unknown_layer_names():
     """Misspelled layer names should raise a helpful error."""
     model = TinyMLP()
-    with pytest.raises(ValueError, match=r"\['classifer\.1'\].*classifier\.1"):
+    with pytest.raises(
+        ValueError, match=r"layers_to_compress: \['classifer\.1'\].*classifier\.1"
+    ):
         compress_model(model, layers_to_compress=["classifer.1"], verbose=False)
+
+
+def test_compress_model_rejects_unknown_tt_rank_keys():
+    """Misspelled keys in a tt_ranks dict should raise instead of falling back."""
+    model = TinyMLP()
+    with pytest.raises(ValueError, match=r"tt_ranks: \['classifer\.1'\]"):
+        compress_model(model, tt_ranks={"classifer.1": 4}, verbose=False)

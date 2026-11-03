@@ -2,6 +2,7 @@
 
 import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import cast
 
 import torch
@@ -35,6 +36,7 @@ def compress_model(
         layers_to_compress: list of layer names to compress. If None, compress all eligible layers.
         compression_ratio: Target compression ratio (0 < ratio < 1)
         tt_ranks: TT-ranks to use. Can be int (same for all) or dict mapping layer names to ranks.
+            Layers missing from the dict use rank 8.
         compress_linear: Whether to compress Linear layers
         compress_conv: Whether to compress Conv2d layers
         verbose: Whether to print compression statistics
@@ -58,16 +60,10 @@ def compress_model(
         if compress_conv:
             layers_to_compress.extend(_find_layers_by_type(compressed_model, nn.Conv2d))
     else:
-        unknown = [name for name in layers_to_compress if name not in module_by_path]
-        if unknown:
-            available = [
-                path
-                for path, module in module_by_path.items()
-                if isinstance(module, (nn.Linear, nn.Conv2d))
-            ]
-            raise ValueError(
-                f"Unknown layer name(s) {unknown}. Linear/Conv2d layers: {available}"
-            )
+        _check_layer_names(layers_to_compress, module_by_path, "layers_to_compress")
+
+    if isinstance(tt_ranks, dict):
+        _check_layer_names(tt_ranks, module_by_path, "tt_ranks")
 
     # Compression statistics
     original_params = 0
@@ -262,6 +258,23 @@ def compress_model(
         )
 
     return compressed_model
+
+
+def _check_layer_names(
+    names: Iterable[str], module_by_path: dict[str, nn.Module], arg: str
+) -> None:
+    """Raise if any name does not refer to a module in the model."""
+    unknown = [name for name in names if name not in module_by_path]
+    if unknown:
+        available = [
+            path
+            for path, module in module_by_path.items()
+            if isinstance(module, (nn.Linear, nn.Conv2d))
+        ]
+        raise ValueError(
+            f"Unknown layer name(s) in {arg}: {unknown}. "
+            f"Linear/Conv2d layers: {available}"
+        )
 
 
 def _clone_model(model: nn.Module) -> nn.Module:
