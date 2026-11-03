@@ -727,7 +727,6 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "torch" },
-    { name = "torchvision" },
 ]
 
 [package.optional-dependencies]
@@ -740,6 +739,10 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
+    { name = "torchvision" },
+]
+vision = [
+    { name = "torchvision" },
 ]
 
 [package.metadata]
@@ -754,9 +757,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.14.0" },
     { name = "torch", specifier = ">=2.0.0" },
-    { name = "torchvision", specifier = ">=0.15.0" },
+    { name = "torchvision", marker = "extra == 'dev'", specifier = ">=0.15.0" },
+    { name = "torchvision", marker = "extra == 'vision'", specifier = ">=0.15.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["vision", "dev"]
 
 [[package]]
 name = "torchvision"

@@ -293,7 +293,7 @@ def vgg16_mpo(pretrained: bool = False, **kwargs) -> VGG_MPO:
 
     if pretrained:
         # Load standard VGG-16 weights and compress
-        import torchvision.models as models
+        models = _import_torchvision_models()
 
         # Load pretrained standard model
         vgg_standard = models.vgg16(pretrained=True)
@@ -322,7 +322,7 @@ def vgg19_mpo(pretrained: bool = False, **kwargs) -> VGG_MPO:
 
     if pretrained:
         # Similar to vgg16_mpo
-        import torchvision.models as models
+        models = _import_torchvision_models()
 
         vgg_standard = models.vgg19(pretrained=True)
         model.load_state_dict(vgg_standard.state_dict(), strict=False)
@@ -332,3 +332,15 @@ def vgg19_mpo(pretrained: bool = False, **kwargs) -> VGG_MPO:
         )
 
     return model
+
+
+def _import_torchvision_models() -> Any:
+    """Import torchvision.models, which is needed only for pretrained weights."""
+    try:
+        import torchvision.models as models
+    except ImportError as e:
+        raise ImportError(
+            "Pretrained weights require torchvision. "
+            'Install it with: pip install "torch-mpo[vision]"'
+        ) from e
+    return models

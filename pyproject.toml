@@ -29,7 +29,6 @@ classifiers = [
 dependencies = [
   "numpy>=1.24.0",
   "torch>=2.0.0",
-  "torchvision>=0.15.0",
 ]
 
 [project.urls]
@@ -39,6 +38,7 @@ Issues = "https://github.com/krzysztofwos/torch-mpo/issues"
 Documentation = "https://github.com/krzysztofwos/torch-mpo/blob/main/docs/tutorial.md"
 
 [project.optional-dependencies]
+vision = ["torchvision>=0.15.0"]
 dev = [
   "black>=23.3.0",
   "flake8>=6.0.0",
@@ -48,6 +48,7 @@ dev = [
   "pytest-cov>=4.1.0",
   "pytest-mock>=3.14.0",
   "pytest>=8.3.5",
+  "torchvision>=0.15.0",
 ]
 
 [build-system]

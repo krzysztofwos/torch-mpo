@@ -203,3 +203,13 @@ def test_vgg_factory_constructors_return_models():
     assert isinstance(
         VGG19_MPO(num_classes=3, compress_conv=False, compress_fc=True), VGG_MPO
     )
+
+
+def test_vgg_pretrained_requires_torchvision(monkeypatch):
+    """A missing torchvision should give an install hint, not a bare ImportError."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "torchvision", None)
+    monkeypatch.setitem(sys.modules, "torchvision.models", None)
+    with pytest.raises(ImportError, match=r"torch-mpo\[vision\]"):
+        vgg16_mpo(pretrained=True, num_classes=10)

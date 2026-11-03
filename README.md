@@ -26,6 +26,15 @@ This library provides PyTorch implementations of tensor-train decomposed neural 
 ## Installation
 
 ```bash
+pip install torch-mpo
+
+# With torchvision, for pretrained VGG weights and the examples
+pip install "torch-mpo[vision]"
+```
+
+From source:
+
+```bash
 # Clone the repository
 git clone https://github.com/krzysztofwos/torch-mpo
 cd torch-mpo
